@@ -1,0 +1,541 @@
+@import 'tailwindcss';
+
+/* [11081125] add support for theming */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --primary-white: #ffffff;
+  --primary-black: #0a0a0a;
+
+  --background: var(--primary-white);
+  --foreground: var(--primary-black);
+
+  --primary-blue: #00bcd4;
+  --primary-orange: #ffb341;
+  --primary-green: #00e676;
+  --primary-pink: #f50057;
+
+  --card-bg: rgba(255, 255, 255, 0.8);
+
+  --code-bg: #1e1e1e;
+}
+
+/* Dark mode overrides */
+.dark {
+  --background: var(--primary-black);
+  --foreground: var(--primary-white);
+  --card-bg: rgba(10, 10, 10, 0.8);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-primary-blue: var(--primary-blue);
+  --color-primary-orange: var(--primary-orange);
+  --color-primary-green: var(--primary-green);
+  --color-primary-pink: var(--primary-pink);
+
+  --color-primary-black: var(--primary-black);
+  --color-primary-white: var(--primary-white);
+
+  --color-card-bg: var(--card-bg);
+
+  --font-sans:
+    var(--font-geist-sans-internal), 'Helvetica Neue', Arial,
+    'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+  --font-mono:
+    var(--font-fira-code-internal), ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, 'Courier New', monospace;
+  --font-dot:
+    var(--font-dot-gothic-internal), 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-klee: var(--font-klee-one-internal), sans-serif;
+
+  --animate-puzzle-fade: puzzle-fade 10s ease-in-out infinite alternate;
+  --animate-scanline: scanline 2.5s linear infinite;
+  --animate-glitch: glitch 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both
+    infinite;
+
+  @keyframes puzzle-fade {
+    0% {
+      opacity: 0.05;
+    }
+    100% {
+      opacity: 0.15;
+    }
+  }
+
+  @keyframes scanline {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(100%);
+    }
+  }
+
+  @keyframes glitch {
+    0% {
+      transform: translate(0);
+    }
+    20% {
+      transform: translate(-2px, 2px);
+    }
+    40% {
+      transform: translate(-2px, -2px);
+    }
+    60% {
+      transform: translate(2px, 2px);
+    }
+    80% {
+      transform: translate(2px, -2px);
+    }
+    100% {
+      transform: translate(0);
+    }
+  }
+
+  --animate-beat: beat 0.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  --animate-wave-slide: wave-slide 2s linear infinite;
+  --animate-flash: flash 4s infinite;
+  --animate-puzzle-assemble: puzzle-assemble 0.8s cubic-bezier(0.25, 1, 0.5, 1)
+    forwards;
+
+  @keyframes beat {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    5% {
+      transform: scale(1.02);
+      opacity: 1;
+    }
+    15% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes wave-slide {
+    0% {
+      background-position-x: 0;
+    }
+    100% {
+      background-position-x: 20px;
+    }
+  }
+
+  @keyframes flash {
+    0%,
+    90%,
+    100% {
+      opacity: 1;
+    }
+    92% {
+      opacity: 0.3;
+    }
+    94% {
+      opacity: 1;
+    }
+    96% {
+      opacity: 0.3;
+    }
+    98% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes puzzle-assemble {
+    0% {
+      clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
+      transform: scale(1.1) translateX(-10px);
+      filter: brightness(2) contrast(1.5);
+    }
+    50% {
+      clip-path: polygon(0 0, 50% 0, 50% 100%, 0 100%);
+      transform: scale(1.05) translateX(0);
+      filter: brightness(1.5) contrast(1.2);
+    }
+    100% {
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+      transform: scale(1) translateX(0);
+      filter: brightness(1) contrast(1);
+    }
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  font-family:
+    var(--font-klee-one-internal), var(--font-geist-sans-internal), sans-serif;
+}
+
+/* Custom Utilities */
+
+/* Custom Utilities */
+
+.bg-pattern-grid {
+  background-image: radial-gradient(var(--foreground) 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: center;
+}
+
+/* MDX/Prose Styling */
+.prose {
+  /* Headings */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-mono);
+    font-weight: bold;
+    line-height: 1.2;
+    margin-top: 2em;
+    margin-bottom: 0.75em;
+    color: var(--foreground);
+  }
+
+  h1 {
+    font-size: 2.25rem; /* 36px */
+    margin-top: 0;
+    border-bottom: 2px solid var(--foreground);
+    padding-bottom: 0.5rem;
+    color: var(--primary-green);
+  }
+
+  h2 {
+    font-size: 1.875rem; /* 30px */
+    color: var(--primary-blue);
+  }
+
+  h3 {
+    font-size: 1.5rem; /* 24px */
+  }
+
+  h4 {
+    font-size: 1.25rem; /* 20px */
+  }
+
+  h5,
+  h6 {
+    font-size: 1rem; /* 16px */
+  }
+
+  /* Paragraphs */
+  p {
+    margin-bottom: 1.25em;
+    line-height: 1.75;
+  }
+
+  /* Lists */
+  ul,
+  ol {
+    margin-top: 1.25em;
+    margin-bottom: 1.25em;
+    padding-left: 1.625em;
+  }
+
+  li {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+
+  /* Strong/Bold */
+  strong {
+    font-weight: 700;
+    color: var(--primary-orange);
+  }
+
+  /* Links */
+  a {
+    color: var(--primary-blue);
+    text-decoration: underline;
+    font-weight: 500;
+  }
+
+  a:hover {
+    color: var(--primary-orange);
+  }
+
+  /* Code */
+  code {
+    font-family: var(--font-mono);
+    padding: 0.05em 0.2em;
+    margin: 0 0.2em;
+    font-size: 0.875em;
+    border: 0.1em solid var(--primary-blue);
+  }
+
+  pre {
+    background-color: var(--code-bg);
+    color: var(--primary-white);
+    padding: 1.25rem;
+    border-radius: 0;
+    overflow-x: auto;
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+  }
+
+  pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.875rem;
+    border: 0;
+  }
+
+  /* Blockquotes */
+  blockquote {
+    border-left: 4px solid var(--primary-blue);
+    padding-left: 1rem;
+    margin-left: 0;
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+    font-style: italic;
+    color: var(--primary-green);
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1.5em;
+    margin-bottom: 1.5em;
+    font-size: 0.9em;
+    overflow-x: auto;
+    display: block;
+  }
+
+  thead {
+    border-bottom: 2px solid var(--primary-blue);
+  }
+
+  th {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    text-align: left;
+    padding: 0.6em 1em;
+    color: var(--primary-blue);
+    background-color: color-mix(in srgb, var(--primary-blue) 10%, transparent);
+  }
+
+  td {
+    padding: 0.6em 1em;
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--foreground) 20%, transparent);
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tbody tr:hover td {
+    background-color: color-mix(in srgb, var(--primary-green) 5%, transparent);
+  }
+
+  /* Horizontal Rule */
+  hr {
+    border: none;
+    border-top: 2px solid var(--foreground);
+    margin: 2em 0;
+  }
+}
+
+/* Toast Animation */
+@keyframes slide-toast {
+  0% {
+    transform: translateX(100vw);
+    opacity: 0;
+  }
+  30% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  70% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-100vw);
+    opacity: 0;
+  }
+}
+
+.animate-toast {
+  animation: slide-toast 1.5s ease-in-out forwards;
+}
+
+/* Vocaloid MV Effects */
+
+/* Wavy underline animation */
+.hover-wave-decoration {
+  position: relative;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.hover-wave-decoration::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 100%;
+  height: 6px;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='6' viewBox='0 0 20 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 3 Q5 0 10 3 T20 3' stroke='%2300bcd4' fill='none' stroke-width='2' /%3E");
+  background-repeat: repeat-x;
+  background-size: 20px 6px;
+  background-position: 0 0;
+  opacity: 0;
+  transform: scaleY(0.5);
+  transform-origin: bottom;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-wave-decoration:hover::after,
+.group:hover .group-hover-wave-decoration::after {
+  opacity: 1;
+  transform: scaleY(1);
+  animation: wave-slide 1s linear infinite;
+}
+
+.group-hover-wave-decoration {
+  position: relative;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.group-hover-wave-decoration::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 100%;
+  height: 6px;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='6' viewBox='0 0 20 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 3 Q5 0 10 3 T20 3' stroke='%2300bcd4' fill='none' stroke-width='2' /%3E");
+  background-repeat: repeat-x;
+  background-size: 20px 6px;
+  background-position: 0 0;
+  opacity: 0;
+  transform: scaleY(0.5);
+  transform-origin: bottom;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Glitch Text Effect (MV Style) */
+.glitch-text {
+  position: relative;
+  display: inline-block;
+}
+
+/* Puzzle Text Slice Effect */
+.puzzle-text-slice {
+  position: relative;
+  display: inline-block;
+  color: transparent;
+}
+
+.puzzle-text-slice::before,
+.puzzle-text-slice::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--foreground);
+}
+
+.puzzle-text-slice::before {
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 0 55%);
+  transform: translateX(-2px);
+}
+
+.puzzle-text-slice::after {
+  clip-path: polygon(0 55%, 100% 45%, 100% 100%, 0 100%);
+  transform: translateX(2px);
+  text-shadow: 2px 0 var(--primary-blue);
+}
+
+.glitch-text::before,
+.glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.8;
+}
+
+.glitch-text::before {
+  color: var(--primary-pink);
+  z-index: -1;
+  animation: glitch-anim-1 2.5s infinite linear alternate-reverse;
+}
+
+.glitch-text::after {
+  color: var(--primary-blue);
+  z-index: -2;
+  animation: glitch-anim-2 3s infinite linear alternate-reverse;
+}
+
+@keyframes glitch-anim-1 {
+  0% {
+    clip-path: inset(20% 0 80% 0);
+    transform: translate(-2px, 0);
+  }
+  20% {
+    clip-path: inset(60% 0 10% 0);
+    transform: translate(2px, 0);
+  }
+  40% {
+    clip-path: inset(40% 0 50% 0);
+    transform: translate(-2px, 0);
+  }
+  60% {
+    clip-path: inset(80% 0 5% 0);
+    transform: translate(2px, 0);
+  }
+  80% {
+    clip-path: inset(10% 0 70% 0);
+    transform: translate(-2px, 0);
+  }
+  100% {
+    clip-path: inset(30% 0 50% 0);
+    transform: translate(2px, 0);
+  }
+}
+
+@keyframes glitch-anim-2 {
+  0% {
+    clip-path: inset(10% 0 60% 0);
+    transform: translate(2px, 0);
+  }
+  20% {
+    clip-path: inset(80% 0 5% 0);
+    transform: translate(-2px, 0);
+  }
+  40% {
+    clip-path: inset(30% 0 20% 0);
+    transform: translate(2px, 0);
+  }
+  60% {
+    clip-path: inset(10% 0 80% 0);
+    transform: translate(-2px, 0);
+  }
+  80% {
+    clip-path: inset(40% 0 10% 0);
+    transform: translate(2px, 0);
+  }
+  100% {
+    clip-path: inset(50% 0 30% 0);
+    transform: translate(-2px, 0);
+  }
+}
