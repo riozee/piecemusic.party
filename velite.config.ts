@@ -79,6 +79,7 @@ export default defineConfig({
           vocal: s.string().optional(),
           lyric: s.string().optional(),
           music: s.string().optional(),
+          arrangement: s.string().optional(),
           illust: s.string().optional(),
           movie: s.string().optional(),
 
