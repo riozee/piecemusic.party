@@ -60,6 +60,8 @@ export default function BlogPage() {
         </h1>
       </div>
 
+      {/* sr-only h2 bridges the h1→h3 gap from PostCard headings */}
+      <h2 className="sr-only">投稿一覧</h2>
       <PostsGrid posts={postsWithTags} />
     </div>
   )

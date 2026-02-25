@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import gsap from 'gsap'
 import ThemeAwareLogo from './ThemeAwareLogo'
 import { ChevronDown, Loader2 } from 'lucide-react'
+import { getSourceCurrentTime } from '@/lib/videoSync'
 
 // ── Tune these ───────────────────────────────────────────────────────────────
 
@@ -78,6 +79,8 @@ export default function ScrollEndSequence() {
       spinnerIn: false,
     }
 
+    let inertiaRaf = 0
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     const getScrollPct = () => {
@@ -113,6 +116,7 @@ export default function ScrollEndSequence() {
     // ── Full reset — shared by cancel and pitch-black end ────────────────────
 
     const fullReset = (scrollToTop: boolean) => {
+      cancelAnimationFrame(inertiaRaf)
       setPageOpacity(1)
       setVideoOpacity(VIDEO_BG_INITIAL_OPACITY)
       setNewVideoOpacity(0)
@@ -306,6 +310,8 @@ export default function ScrollEndSequence() {
     const onVideoCanPlay = () => {
       if (s.videoLoaded) return
       s.videoLoaded = true
+      // Seek to match the primary VideoBackground video before playing
+      newVideo.currentTime = getSourceCurrentTime()
       newVideo.play().catch(() => {})
       // Re-run with delta 0 so the sequence immediately advances past the gate
       runSequence(0)
@@ -370,22 +376,60 @@ export default function ScrollEndSequence() {
 
     const onWheel = (e: WheelEvent) => {
       if (!s.sequenceActive || s.resetting) return
-      e.preventDefault()
+      if (e.cancelable) e.preventDefault()
       runSequence(e.deltaY)
     }
 
     // ── Touch driver ─────────────────────────────────────────────────────────
 
     let touchPrevY = 0
+    let touchVelocity = 0
+    let touchLastTime = 0
+
     const onTouchStart = (e: TouchEvent) => {
+      cancelAnimationFrame(inertiaRaf)
       touchPrevY = e.touches[0].clientY
+      touchLastTime = performance.now()
+      touchVelocity = 0
     }
     const onTouchMove = (e: TouchEvent) => {
       if (!s.sequenceActive || s.resetting) return
-      e.preventDefault()
-      const dy = touchPrevY - e.touches[0].clientY
-      touchPrevY = e.touches[0].clientY
-      runSequence(dy * 1.8)
+      if (e.cancelable) e.preventDefault()
+
+      const currentY = e.touches[0].clientY
+      const currentTime = performance.now()
+      const dy = touchPrevY - currentY
+      const dt = currentTime - touchLastTime
+
+      if (dt > 0) {
+        const v = dy / dt
+        touchVelocity = touchVelocity === 0 ? v : touchVelocity * 0.5 + v * 0.5
+      }
+
+      touchPrevY = currentY
+      touchLastTime = currentTime
+      runSequence(dy * 2.0)
+    }
+    const onTouchEnd = () => {
+      if (!s.sequenceActive || s.resetting) return
+
+      if (performance.now() - touchLastTime > 50) {
+        touchVelocity = 0
+        return
+      }
+
+      let v = touchVelocity * 16.6 * 2.0
+
+      const applyInertia = () => {
+        if (!s.sequenceActive || s.resetting || Math.abs(v) < 0.5) return
+
+        runSequence(v)
+        v *= 0.92
+
+        inertiaRaf = requestAnimationFrame(applyInertia)
+      }
+
+      inertiaRaf = requestAnimationFrame(applyInertia)
     }
 
     // ── Keyboard driver ───────────────────────────────────────────────────────
@@ -414,6 +458,7 @@ export default function ScrollEndSequence() {
     window.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('touchstart', onTouchStart, { passive: true })
     window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
     window.addEventListener('keydown', onKeyDown)
 
     return () => {
@@ -421,6 +466,7 @@ export default function ScrollEndSequence() {
       window.removeEventListener('wheel', onWheel)
       window.removeEventListener('touchstart', onTouchStart)
       window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', onTouchEnd)
       window.removeEventListener('keydown', onKeyDown)
       newVideo.removeEventListener('canplay', onVideoCanPlay)
       unlockScroll()

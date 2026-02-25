@@ -37,6 +37,7 @@ export default function WorkCard({ work }: WorkCardProps) {
                 }
                 alt={work.title}
                 fill
+                sizes="(max-width: 768px) 90vw, (max-width: 1200px) 45vw, 400px"
                 className="object-cover"
               />
             ) : (

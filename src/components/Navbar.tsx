@@ -61,7 +61,10 @@ export default function Navbar() {
     <>
       {/* Persistent Vertical Bar/Trigger Container */}
       {/* moved from right edge to left edge */}
-      <nav className="fixed left-0 top-0 h-full z-50 flex flex-col items-center pointer-events-none">
+      <nav
+        aria-label="メインナビゲーション"
+        className="fixed left-0 top-0 h-full z-50 flex flex-col items-center pointer-events-none"
+      >
         {/* Desktop Vertical Bar */}
         {/* border now on the right side of the bar since bar is on left */}
         <div className="hidden md:flex h-full w-18 bg-background/80 backdrop-blur-md border-r border-foreground/10 flex-col items-center justify-between py-12 pointer-events-auto">
@@ -81,8 +84,10 @@ export default function Navbar() {
 
           <button
             onClick={() => setIsOpen(!isOpen)}
+            aria-expanded={isOpen}
+            aria-controls="nav-menu"
             className="cursor-target group flex flex-col gap-1.5 items-center justify-center p-4 hover:text-primary-blue transition-colors focus:outline-none"
-            aria-label="Toggle Menu"
+            aria-label="メニューを開く"
           >
             <div
               className={`w-6 h-0.5 bg-current transition-all duration-300 ${isOpen ? 'rotate-45 translate-y-2' : ''}`}
@@ -105,8 +110,10 @@ export default function Navbar() {
         >
           <button
             onClick={() => setIsOpen(!isOpen)}
+            aria-expanded={isOpen}
+            aria-controls="nav-menu"
             className="w-14 h-14 bg-background/90 backdrop-blur-md border border-foreground/10 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
-            aria-label="Toggle Menu"
+            aria-label="メニューを開く"
           >
             <div className="flex flex-col gap-1.5 items-center">
               <span
@@ -122,10 +129,10 @@ export default function Navbar() {
           </button>
         </div>
 
-        {/* Scroll-to-top button (mobile bottom right) */}
+        {/* Scroll-to-top button (floating, respects bottom inset). previously mobile only; now shown on all viewports */}
         {showScroll && (
           <div
-            className="md:hidden fixed right-[calc(1.5rem+env(safe-area-inset-right))] pointer-events-auto"
+            className="fixed right-[calc(1.5rem+env(safe-area-inset-right))] pointer-events-auto"
             style={{
               bottom: `calc(1.5rem + env(safe-area-inset-bottom) + ${bottomInset}px)`,
             }}
@@ -185,6 +192,7 @@ function EventIndicator() {
           {/* clickable indicator itself */}
           <Link
             href={ev.permalink}
+            aria-label={`イベント: ${ev.title}`}
             className="flex items-center justify-center"
           >
             {/* small date block indicator */}

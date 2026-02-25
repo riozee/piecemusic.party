@@ -9,11 +9,30 @@ import TwitterSection from '@/components/TwitterSection'
 import { siteConfig, absoluteUrl } from '@/lib/site-config'
 import VideoOpacityController from '@/components/VideoOpacityController'
 
+const ogImage = absoluteUrl(siteConfig.defaultOgImage)
+
 export const metadata: Metadata = {
   title: siteConfig.name,
   description: siteConfig.description,
   alternates: {
     canonical: absoluteUrl('/'),
+  },
+  openGraph: {
+    type: 'website',
+    title: siteConfig.name,
+    description: siteConfig.description,
+    url: absoluteUrl('/'),
+    siteName: siteConfig.name,
+    locale: siteConfig.locale.replace('-', '_'),
+    images: [{ url: ogImage, alt: siteConfig.name }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: siteConfig.name,
+    description: siteConfig.description,
+    creator: '@Piece_Music_',
+    site: '@piecemusic.party',
+    images: [ogImage],
   },
 }
 

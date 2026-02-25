@@ -26,15 +26,16 @@ export default function PostCard({ post }: PostCardProps) {
               src={post.cover}
               alt={post.title}
               fill
+              sizes="(max-width: 768px) 96px, 128px"
               className="rounded object-cover"
             />
           </div>
         )}
 
         <div className="flex flex-col grow min-w-0">
-          <h2 className="text-lg md:text-xl font-bold group-hover:text-primary-blue transition-colors leading-tight">
+          <h3 className="text-lg md:text-xl font-bold group-hover:text-primary-blue transition-colors leading-tight">
             {post.title}
-          </h2>
+          </h3>
           <div className="text-xs opacity-50 mt-1">
             {post.author && (
               <span className="text-primary-blue">

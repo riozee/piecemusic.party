@@ -22,6 +22,7 @@ export default function HeroSection() {
       <div className="relative h-64 w-64 md:h-96 md:w-96 animate-beat -rotate-2">
         {/* background puzzle svg tinted orange */}
         <svg
+          aria-hidden="true"
           className="absolute inset-0 w-full h-full text-primary-orange/80 pointer-events-none scale-110 translate-x-4 translate-y-3"
           viewBox="0 0 103 89"
           fill="currentColor"
@@ -74,7 +75,11 @@ export default function HeroSection() {
         </div>
 
         <div className="flex gap-4 justify-center md:justify-start pt-4 text-xs rotate-1">
-          <svg className="w-full h-2" xmlns="http://www.w3.org/2000/svg">
+          <svg
+            aria-hidden="true"
+            className="w-full h-2"
+            xmlns="http://www.w3.org/2000/svg"
+          >
             <defs>
               <pattern
                 id="sawtooth"

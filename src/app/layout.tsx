@@ -114,6 +114,14 @@ export default function RootLayout({
           `} // structure the entire screen
       >
         <Providers>
+          {/* Skip navigation link — first focusable element for keyboard users */}
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-9999 focus:px-4 focus:py-2 focus:bg-background focus:text-foreground focus:border focus:border-foreground/30 focus:font-mono focus:text-sm"
+          >
+            メインコンテンツへスキップ
+          </a>
+
           {/* Video background — intentionally outside page-fade-wrapper so it is never faded */}
           <VideoBackground src="/static/background.mp4" />
 
@@ -137,7 +145,9 @@ export default function RootLayout({
 
               {/* add left padding on md screens to account for the sidebar now on the left */}
               <div className="flex flex-col min-h-screen md:pl-18">
-                <main className="grow">{children}</main>
+                <main id="main-content" className="grow">
+                  {children}
+                </main>
                 <Footer />
               </div>
             </ClickSpark>

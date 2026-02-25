@@ -64,6 +64,8 @@ export default function WorksPage() {
           作品
         </h1>
       </div>
+      {/* sr-only h2 bridges the h1→h3 gap from WorkCard headings */}
+      <h2 className="sr-only">作品一覧</h2>
       <WorksGrid works={sortedWorks} />
     </div>
   )

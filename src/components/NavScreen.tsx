@@ -78,6 +78,15 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
     }
   }, [])
 
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   // separate effect for tracking scroll progress of the background page. this
   // updates a fake "playhead" style progress bar in the menu
   useEffect(() => {
@@ -110,12 +119,20 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
 
   return (
     <motion.div
+      id="nav-menu"
+      role="dialog"
+      aria-modal="true"
+      aria-label="パイゲーションメニュー"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 bg-background/95 backdrop-blur-2xl z-40"
+      onClick={onClose} // clicking the dimmed background closes menu
     >
-      <div className="mx-auto w-full max-w-5xl h-full px-6 md:px-8 py-6 md:py-10 grid grid-rows-[1fr_auto] gap-6">
+      <div
+        className="mx-auto w-full max-w-5xl h-full px-6 md:px-8 py-6 md:py-10 grid grid-rows-[1fr_auto] gap-6"
+        onClick={(e) => e.stopPropagation()} // prevent background clicks from bubbling
+      >
         {/* playlist panel; use flex layout so scroll area can shrink properly */}
         <div className="group w-full border border-foreground/10 bg-card-bg text-foreground shadow-sm flex flex-col overflow-hidden rounded-2xl transition-[border-radius] duration-200">
           <div className="flex items-center justify-between px-4 py-3 border-b border-foreground/10">

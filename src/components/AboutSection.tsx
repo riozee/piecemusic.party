@@ -10,9 +10,12 @@ export default function AboutSection() {
     <section className="relative">
       <div className="container mx-auto md:px-12 relative">
         <div className="bg-card-bg border border-foreground/30 p-8 md:p-12 pb-16 md:pb-16 relative overflow-hidden backdrop-blur-sm shadow-xl">
-          <h2 className="absolute -bottom-5 right-0 opacity-10 text-9xl font-mono tracking-tighter z-10 pointer-events-none">
+          <div
+            aria-hidden="true"
+            className="absolute -bottom-5 right-0 opacity-10 text-9xl font-mono tracking-tighter z-10 pointer-events-none select-none"
+          >
             ABOUT
-          </h2>
+          </div>
 
           <AutoFitText
             className="absolute top-2 left-4 md:left-8 right-4 md:right-8 leading-relaxed font-bold text-foreground z-20 text-right"

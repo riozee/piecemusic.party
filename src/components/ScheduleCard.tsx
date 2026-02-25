@@ -105,6 +105,7 @@ export default function ScheduleCard({ events }: ScheduleCardProps) {
                     <div className="absolute top-0 left-0 w-64 h-64 -translate-x-1/32 -translate-y-1/16 pointer-events-none rotate-6 scale-150 z-20">
                       {/* inline puzzle piece SVG filled with semi-transparent black */}
                       <svg
+                        aria-hidden="true"
                         viewBox="0 0 102 64"
                         className="w-full h-full"
                         xmlns="http://www.w3.org/2000/svg"
@@ -125,8 +126,9 @@ export default function ScheduleCard({ events }: ScheduleCardProps) {
                           <div className="absolute inset-0 bg-primary-blue" />
                           <Image
                             src={event.cover}
-                            alt="event cover"
+                            alt={event.title}
                             fill
+                            sizes="(max-width: 768px) 128px, 256px"
                             className="object-cover object-center"
                             priority={false}
                           />
