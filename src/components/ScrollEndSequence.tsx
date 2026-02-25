@@ -134,6 +134,12 @@ export default function ScrollEndSequence() {
       s.videoLoading = false
       s.spinnerIn = false
 
+      // Restore video background margin
+      if (videoBg) {
+        videoBg.classList.remove('md:ml-0')
+        videoBg.classList.add('md:ml-18')
+      }
+
       unlockScroll()
       s.sequenceActive = false
 
@@ -350,6 +356,11 @@ export default function ScrollEndSequence() {
           s.hintVisible = true // hint stays visible through the whole sequence
           lockScroll()
           startVideoLoad() // begin loading as soon as sequence arms
+          // Slide video background to full width
+          if (videoBg) {
+            videoBg.classList.remove('md:ml-18')
+            videoBg.classList.add('md:ml-0')
+          }
           runSequence(0) // init phase 1; next wheel tick drives it forward
         }
       })
@@ -415,6 +426,10 @@ export default function ScrollEndSequence() {
       unlockScroll()
       setPageOpacity(1)
       setVideoOpacity(VIDEO_BG_INITIAL_OPACITY)
+      if (videoBg) {
+        videoBg.classList.remove('md:ml-0')
+        videoBg.classList.add('md:ml-18')
+      }
     }
   }, [])
 

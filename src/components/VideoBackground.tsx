@@ -16,7 +16,7 @@ export default function VideoBackground({
   return (
     <div
       id="video-background"
-      className={`fixed inset-0 -z-50 overflow-hidden pointer-events-none ${className}`}
+      className={`fixed inset-0 -z-50 overflow-hidden pointer-events-none md:ml-18 transition-[margin-left] duration-700 ease-in-out ${className}`}
       style={{ opacity }}
     >
       <video

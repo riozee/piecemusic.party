@@ -7,6 +7,7 @@ import HomeAboutSection from '@/components/HomeAboutSection'
 import HeroSection from '@/components/HeroSection'
 import TwitterSection from '@/components/TwitterSection'
 import { siteConfig, absoluteUrl } from '@/lib/site-config'
+import VideoOpacityController from '@/components/VideoOpacityController'
 
 export const metadata: Metadata = {
   title: siteConfig.name,
@@ -45,6 +46,7 @@ export default function Home() {
 
   return (
     <div className="container mx-auto max-w-7xl px-4 md:px-6 py-8 pb-32 md:pb-8 pt-16 md:pt-8">
+      <VideoOpacityController />
       <script
         type="application/ld+json"
         suppressHydrationWarning
@@ -54,7 +56,7 @@ export default function Home() {
       <HeroSection />
 
       {/* 2. LIVE_INFO & X_FEED */}
-      <div className="flex flex-col lg:flex-row gap-12 mb-16 mt-16 md:mt-0 items-stretch lg:items-start">
+      <div className="flex flex-col lg:flex-row gap-12 mb-16 mt-16 items-stretch lg:items-start">
         <div className="flex-1 min-w-0 w-full">
           <HomeEvents events={events} />
         </div>

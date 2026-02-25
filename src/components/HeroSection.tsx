@@ -18,11 +18,11 @@ export default function HeroSection() {
   )
 
   return (
-    <section className="cursor-target min-h-[60vh] w-full flex flex-col md:flex-row items-center justify-center text-center md:text-left gap-12 relative overflow-hidden">
+    <section className="cursor-target min-h-[60vh] md:mt-4 md:mb-16 w-full flex flex-col md:flex-row items-center justify-center text-center md:text-left gap-12 relative overflow-hidden">
       <div className="relative h-64 w-64 md:h-96 md:w-96 animate-beat -rotate-2">
         {/* background puzzle svg tinted orange */}
         <svg
-          className="absolute inset-0 w-full h-full text-primary-orange/30 pointer-events-none scale-110 translate-x-2 translate-y-0"
+          className="absolute inset-0 w-full h-full text-primary-orange/80 pointer-events-none scale-110 translate-x-4 translate-y-3"
           viewBox="0 0 103 89"
           fill="currentColor"
           xmlns="http://www.w3.org/2000/svg"
@@ -85,7 +85,7 @@ export default function HeroSection() {
                 <path
                   d="M 0 5 L 5 0 L 10 5"
                   fill="none"
-                  stroke="currentColor"
+                  stroke="var(--primary-blue)"
                   strokeWidth="1"
                 />
               </pattern>
