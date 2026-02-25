@@ -8,6 +8,7 @@ import { siteConfig, absoluteUrl } from '@/lib/site-config'
 import { Providers } from './providers'
 import ClickSpark from '@/components/reactbits/ClickSpark'
 import TargetCursor from '@/components/reactbits/TargetCursor'
+import ScrollEndSequence from '@/components/ScrollEndSequence'
 
 const geistSans = Geist({
   variable: '--font-geist-sans-internal',
@@ -113,29 +114,38 @@ export default function RootLayout({
           `} // structure the entire screen
       >
         <Providers>
+          {/* Video background — intentionally outside page-fade-wrapper so it is never faded */}
           <VideoBackground src="/static/background.mp4" />
-          <TargetCursor
-            // adjust how fast the "beat" animation cycles (seconds)
-            beatDuration={0.8}
-            parallaxOn={true}
-            hideDefaultCursor={false}
-          />
 
-          <ClickSpark
-            sparkColor="#00bcd4"
-            sparkSize={10}
-            sparkRadius={15}
-            sparkCount={8}
-            duration={400}
-          >
-            <Navbar />
+          {/* Everything rendered here fades to 0 during the scroll-end sequence */}
+          <div id="page-fade-wrapper">
+            <TargetCursor
+              // adjust how fast the "beat" animation cycles (seconds)
+              beatDuration={0.8}
+              parallaxOn={true}
+              hideDefaultCursor={false}
+            />
 
-            {/* add left padding on md screens to account for the sidebar now on the left */}
-            <div className="flex flex-col min-h-screen md:pl-18">
-              <main className="grow">{children}</main>
-              <Footer />
-            </div>
-          </ClickSpark>
+            <ClickSpark
+              sparkColor="#00bcd4"
+              sparkSize={10}
+              sparkRadius={15}
+              sparkCount={8}
+              duration={400}
+            >
+              <Navbar />
+
+              {/* add left padding on md screens to account for the sidebar now on the left */}
+              <div className="flex flex-col min-h-screen md:pl-18">
+                <main className="grow">{children}</main>
+                <Footer />
+              </div>
+            </ClickSpark>
+          </div>
+
+          {/* Scroll-end cinematic sequence — sibling of page-fade-wrapper so its
+              fixed overlays are never clipped by the parent opacity context */}
+          <ScrollEndSequence />
         </Providers>
       </body>
     </html>

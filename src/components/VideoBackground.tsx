@@ -15,6 +15,7 @@ export default function VideoBackground({
 }: VideoBackgroundProps) {
   return (
     <div
+      id="video-background"
       className={`fixed inset-0 -z-50 overflow-hidden pointer-events-none ${className}`}
       style={{ opacity }}
     >
