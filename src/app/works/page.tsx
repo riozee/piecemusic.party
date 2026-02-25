@@ -51,7 +51,7 @@ export default function WorksPage() {
     }))
 
   return (
-    <div className="container mx-auto max-w-7xl px-4 py-8 relative">
+    <div className="container mx-auto max-w-7xl px-4 py-8 pb-32 md:pb-8 relative">
       <div className="mt-4 mb-8">
         <Link href="/">
           <Button variant="outline" className="text-sm">

@@ -150,7 +150,7 @@ export default async function EventPage(props: EventPageProps) {
         <div className="absolute inset-0 bg-background/50" />
       </div>
 
-      <div className="container mx-auto max-w-5xl py-12 px-4 relative z-10 w-full">
+      <div className="container mx-auto max-w-5xl py-12 pb-32 md:pb-12 px-4 relative z-10 w-full">
         <div className="mb-8">
           <Button href="/events" variant="outline" className="group">
             <span className="group-hover:-translate-x-1 transition-transform inline-block">

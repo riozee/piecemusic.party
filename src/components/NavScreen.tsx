@@ -16,6 +16,7 @@ import {
   Disc3,
   AudioLines,
   Sparkles,
+  DownloadCloud,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -44,7 +45,7 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
   }
 
   const coverIcons = useMemo(
-    () => [Music2, Disc3, Radio, AudioLines, Sparkles],
+    () => [Music2, Disc3, Radio, AudioLines, Sparkles, DownloadCloud],
     []
   )
 

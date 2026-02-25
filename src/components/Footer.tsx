@@ -23,7 +23,10 @@ export default function Footer() {
   )
 
   return (
-    <footer className="bg-background text-foreground pt-16 pb-8 border-t border-foreground/30 mt-auto relative z-10">
+    <footer
+      id="site-footer"
+      className="bg-background text-foreground pt-16 pb-32 md:pb-8 border-t border-foreground/30 mt-auto relative z-10"
+    >
       <div className="container mx-auto px-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-12 mb-12">
           <div>

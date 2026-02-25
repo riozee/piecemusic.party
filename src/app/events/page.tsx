@@ -54,7 +54,7 @@ export default function EventsPage() {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-8 space-y-20 relative">
+    <div className="container mx-auto max-w-5xl px-4 py-8 pb-32 md:pb-8 space-y-20 relative">
       <div className="mt-4 mb-8">
         <Link href="/">
           <Button variant="outline" className="text-sm">

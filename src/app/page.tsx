@@ -44,7 +44,7 @@ export default function Home() {
     .slice(0, 6)
 
   return (
-    <div className="container mx-auto max-w-7xl px-4 md:px-6 py-8 pt-16 md:pt-8">
+    <div className="container mx-auto max-w-7xl px-4 md:px-6 py-8 pb-32 md:pb-8 pt-16 md:pt-8">
       <script
         type="application/ld+json"
         suppressHydrationWarning

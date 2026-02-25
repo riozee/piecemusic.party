@@ -161,7 +161,7 @@ export default async function WorkPage(props: WorkPageProps) {
         <div className="absolute inset-0 bg-background/50" />
       </div>
 
-      <div className="container mx-auto px-4 md:px-8 relative z-10 py-12">
+      <div className="container mx-auto px-4 md:px-8 relative z-10 py-12 pb-32 md:pb-12">
         {/* Navigation */}
         <div className="mb-8">
           <Button href="/works" variant="outline" className="group">

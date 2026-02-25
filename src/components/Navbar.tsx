@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import NavScreen from './NavScreen'
@@ -10,6 +10,43 @@ import DateBlock from './DateBlock'
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
+  const [showScroll, setShowScroll] = useState(false)
+  const [bottomInset, setBottomInset] = useState(0)
+
+  // show scroll-to-top button after user scrolls a bit
+  useEffect(() => {
+    const onScroll = () => {
+      setShowScroll(window.pageYOffset > 200)
+    }
+    window.addEventListener('scroll', onScroll)
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // compute additional bottom offset to avoid overlapping footer
+  // isOpen is a dependency so the closure always sees the latest value;
+  // when the menu is open, always force inset to 0 (no race condition)
+  useEffect(() => {
+    const updateInset = () => {
+      if (isOpen) {
+        setBottomInset(0)
+        return
+      }
+      const f = document.getElementById('site-footer')
+      if (!f) return
+      const overlap = Math.max(
+        0,
+        window.innerHeight - f.getBoundingClientRect().top
+      )
+      setBottomInset(overlap)
+    }
+    window.addEventListener('scroll', updateInset)
+    window.addEventListener('resize', updateInset)
+    updateInset()
+    return () => {
+      window.removeEventListener('scroll', updateInset)
+      window.removeEventListener('resize', updateInset)
+    }
+  }, [isOpen])
 
   const navLinks = [
     { name: 'ホーム', href: '/', id: '01' },
@@ -60,7 +97,12 @@ export default function Navbar() {
         </div>
 
         {/* Mobile Hamburger Only (Bottom Left with Margin and Safe Area) */}
-        <div className="md:hidden fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-[calc(1.5rem+env(safe-area-inset-left))] pointer-events-auto">
+        <div
+          className="md:hidden fixed left-[calc(1.5rem+env(safe-area-inset-left))] pointer-events-auto"
+          style={{
+            bottom: `calc(1.5rem + env(safe-area-inset-bottom) + ${bottomInset}px)`,
+          }}
+        >
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="w-14 h-14 bg-background/90 backdrop-blur-md border border-foreground/10 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
@@ -79,6 +121,24 @@ export default function Navbar() {
             </div>
           </button>
         </div>
+
+        {/* Scroll-to-top button (mobile bottom right) */}
+        {showScroll && (
+          <div
+            className="md:hidden fixed right-[calc(1.5rem+env(safe-area-inset-right))] pointer-events-auto"
+            style={{
+              bottom: `calc(1.5rem + env(safe-area-inset-bottom) + ${bottomInset}px)`,
+            }}
+          >
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="w-14 h-14 bg-background/90 backdrop-blur-md border border-foreground/10 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
+              aria-label="Scroll to top"
+            >
+              <span className="text-2xl font-bold text-foreground">^</span>
+            </button>
+          </div>
+        )}
       </nav>
 
       {/* Identical Menu Overlay for Desktop and Mobile */}
