@@ -7,8 +7,7 @@ import {
 } from 'react'
 import Image from 'next/image'
 import * as runtime from 'react/jsx-runtime'
-
-// Images in MDX should render normally without animation
+import { ImageViewerProvider, useImageViewer } from './ImageViewer'
 
 const useMDXComponent = (code: string) => {
   return useMemo(() => {
@@ -40,20 +39,21 @@ const MarkdownImage = (props: ComponentPropsWithoutRef<'img'>) => {
   const resolvedWidth = parseDimension(width, 1200)
   const resolvedHeight = parseDimension(height, 675)
   const imageSrc = typeof src === 'string' ? src : undefined
+  const { openImage } = useImageViewer()
 
   if (!imageSrc) {
     return null
   }
 
-  // Render a plain Next.js Image component without any animation wrapper
   return (
     <Image
       alt={alt ?? ''}
       src={imageSrc}
       width={resolvedWidth}
       height={resolvedHeight}
-      className={`block mx-auto h-auto w-full md:max-w-[60%]! ${className}`.trim()}
+      className={`block mx-auto h-auto w-full md:max-w-[60%]! cursor-zoom-in ${className}`.trim()}
       loading="lazy"
+      onClick={() => openImage(imageSrc, alt ?? '')}
       {...rest}
     />
   )
@@ -61,10 +61,14 @@ const MarkdownImage = (props: ComponentPropsWithoutRef<'img'>) => {
 
 export function MDXContent({ code, components }: MDXProps) {
   const Component = useMDXComponent(code)
-  return Component({
-    components: {
-      img: MarkdownImage,
-      ...components,
-    },
-  })
+  return (
+    <ImageViewerProvider>
+      {Component({
+        components: {
+          img: MarkdownImage,
+          ...components,
+        },
+      })}
+    </ImageViewerProvider>
+  )
 }

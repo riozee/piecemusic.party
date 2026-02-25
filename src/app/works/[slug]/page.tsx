@@ -6,6 +6,7 @@ import Image from 'next/image'
 import Button from '@/components/Button'
 import AccessCardDownloadButton from '@/components/AccessCardDownloadButton'
 import { absoluteUrl, siteConfig } from '@/lib/site-config'
+import { ClickableImageTrigger } from '@/components/ClickableImage'
 
 interface WorkPageProps {
   params: Promise<{
@@ -118,6 +119,16 @@ export default async function WorkPage(props: WorkPageProps) {
   const canonicalUrl = absoluteUrl(work.permalink)
   const coverImageUrl = work.cover ? absoluteUrl(work.cover) : defaultWorkImage
 
+  // Extract raw cover src (may be a string or a Velite image object with .src)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawWorkCover: any = work.cover
+  const workCoverSrc: string | undefined =
+    typeof rawWorkCover === 'string'
+      ? rawWorkCover
+      : rawWorkCover && typeof rawWorkCover.src === 'string'
+        ? rawWorkCover.src
+        : undefined
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'MusicRecording',
@@ -175,32 +186,24 @@ export default async function WorkPage(props: WorkPageProps) {
         <div className="grid md:grid-cols-12 gap-12 lg:gap-16">
           {/* Sidebar / Jacket Area */}
           <div className="md:col-span-5 lg:col-span-4 flex flex-col gap-6 relative">
-            <div className="relative aspect-video border-2 border-foreground bg-black shadow-[8px_8px_0px_var(--primary-blue)] group overflow-hidden transition-all hover:shadow-[12px_12px_0px_var(--primary-orange)] hover:-translate-x-0.5 hover:-translate-y-0.5 z-10">
-              {work.cover ? (
-                (() => {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const raw2: any = work.cover
-                  const src2: string | undefined =
-                    typeof raw2 === 'string'
-                      ? raw2
-                      : raw2 && typeof raw2.src === 'string'
-                        ? raw2.src
-                        : undefined
-                  return src2 ? (
-                    <Image
-                      src={src2}
-                      alt={work.title}
-                      fill
-                      className="object-cover animate-puzzle-assemble"
-                    />
-                  ) : null
-                })()
+            <ClickableImageTrigger
+              src={workCoverSrc}
+              alt={work.title}
+              className="relative aspect-video border-2 border-foreground bg-black shadow-[8px_8px_0px_var(--primary-blue)] group overflow-hidden transition-all hover:shadow-[12px_12px_0px_var(--primary-orange)] hover:-translate-x-0.5 hover:-translate-y-0.5 z-10"
+            >
+              {workCoverSrc ? (
+                <Image
+                  src={workCoverSrc}
+                  alt={work.title}
+                  fill
+                  className="object-cover animate-puzzle-assemble"
+                />
               ) : (
                 <div className="flex h-full w-full items-center justify-center bg-gray-900 text-white font-mono text-xl">
                   ¯\_(ツ)_/¯
                 </div>
               )}
-            </div>
+            </ClickableImageTrigger>
             {/* puzzle piece svg positioned just under the cover art */}
             <div
               className="absolute left-1/2 translate-x-16 md:translate-x-24 md:translate-y-6 pointer-events-none z-0 scale-[2] rotate-24"

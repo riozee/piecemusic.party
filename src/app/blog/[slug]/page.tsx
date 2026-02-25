@@ -5,6 +5,7 @@ import { MDXContent } from '@/components/mdx-content'
 import ShareButton from '@/components/ShareButton'
 import { absoluteUrl, siteConfig } from '@/lib/site-config'
 import Button from '@/components/Button'
+import { ClickableImage } from '@/components/ClickableImage'
 
 interface PostPageProps {
   params: Promise<{
@@ -263,8 +264,7 @@ export default async function PostPage({ params }: PostPageProps) {
           {/* cover image display */}
           {coverSrc2 && (
             <div className="mb-12 flex justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <ClickableImage
                 src={coverSrc2}
                 alt={post.title}
                 className="w-full h-auto rounded-lg md:max-w-[60%]!"
