@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'motion/react'
 import Link from 'next/link'
 import NavScreen from './NavScreen'
@@ -160,20 +160,30 @@ export default function Navbar() {
 
 // separate component so logic doesn't clutter main menu component
 function EventIndicator() {
+  // keep the indicator updated with the current date/time, since the app
+  // is statically built and may be served after an event has passed.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
   // determine next upcoming event from the global content list
   // compute all upcoming events (no fallback to past)
-  // compute upcoming events based solely on date
-  const isUpcoming = (evtDate: string) => {
-    try {
-      return new Date(evtDate).getTime() >= new Date().getTime()
-    } catch {
-      return false
+  // compute upcoming events based solely on date + current time
+  const upcomingEvents: Event[] = useMemo(() => {
+    const isUpcoming = (evtDate: string) => {
+      try {
+        return new Date(evtDate).getTime() >= now
+      } catch {
+        return false
+      }
     }
-  }
 
-  const upcomingEvents: Event[] = events
-    .filter((e) => isUpcoming(e.date))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    return events
+      .filter((e) => isUpcoming(e.date))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  }, [now])
 
   const nextEvent = upcomingEvents[0]
 

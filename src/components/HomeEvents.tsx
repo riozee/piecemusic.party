@@ -1,3 +1,6 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { Event } from '#site/content'
 import Link from 'next/link'
 import ScheduleCard from './ScheduleCard'
@@ -7,12 +10,18 @@ interface HomeEventsProps {
 }
 
 export default function HomeEvents({ events }: HomeEventsProps) {
-  // Logic: "scheduled" (active) events stacked vertically,
-  // and if there are none, show only one past event
-  // determine whether an event is in the future based on its date
+  // We render this component on the client so the event list can update
+  // based on the current time (e.g. when an event date passes after the
+  // site was statically built).
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
   const isUpcoming = (evtDate: string) => {
     try {
-      return new Date(evtDate).getTime() >= new Date().getTime()
+      return new Date(evtDate).getTime() >= now
     } catch {
       return false
     }
