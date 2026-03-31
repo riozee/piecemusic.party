@@ -123,7 +123,7 @@ export default function RootLayout({
           </a>
 
           {/* Video background — intentionally outside page-fade-wrapper so it is never faded */}
-          <VideoBackground src="/static/background.mp4" />
+          <VideoBackground src="/static/background.webm" />
 
           {/* Everything rendered here fades to 0 during the scroll-end sequence */}
           <div id="page-fade-wrapper">

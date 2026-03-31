@@ -17,7 +17,7 @@ const VIDEO_BG_INITIAL_OPACITY = 0.5
 const HINT_SCROLL_PCT = 0.99
 
 /** Source of the high-quality video loaded lazily during the sequence */
-const NEW_VIDEO_SRC = '/static/background-noblur.mp4'
+const NEW_VIDEO_SRC = '/static/background-noblur.webm'
 
 /**
  * Phase-end thresholds as a fraction of SEQUENCE_TOTAL.
@@ -500,7 +500,7 @@ export default function ScrollEndSequence() {
         <ChevronDown className="text-foreground animate-bounce" size={18} />
       </div>
 
-      {/* ── Loading spinner (shown while background-noblur.mp4 downloads) ── */}
+      {/* ── Loading spinner (shown while background-noblur.webm downloads) ── */}
       <div
         ref={spinnerRef}
         className="fixed bottom-16 left-1/2 -translate-x-1/2 z-85 pointer-events-none select-none"
