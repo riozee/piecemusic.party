@@ -85,7 +85,8 @@ export default function ScrollEndSequence() {
 
     const getScrollPct = () => {
       const max = document.documentElement.scrollHeight - window.innerHeight
-      return max <= 0 ? 1 : window.scrollY / max
+      // Firefox can report fractional scrollY that prevents true bottom from reaching 1.0
+      return max <= 0 ? 1 : Math.min(1, Math.ceil(window.scrollY) / max)
     }
 
     const lockScroll = () => {
@@ -377,7 +378,11 @@ export default function ScrollEndSequence() {
     const onWheel = (e: WheelEvent) => {
       if (!s.sequenceActive || s.resetting) return
       if (e.cancelable) e.preventDefault()
-      runSequence(e.deltaY)
+
+      // Normalize Firefox DOM_DELTA_LINE (1) to a standard pixel amount (~33px per line)
+      const multiplier = e.deltaMode === 1 ? 33 : 1
+
+      runSequence(e.deltaY * multiplier)
     }
 
     // ── Touch driver ─────────────────────────────────────────────────────────
