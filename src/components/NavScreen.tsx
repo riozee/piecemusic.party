@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 // theme toggling moved into the play button so we no longer render a
 // dedicated ThemeSwitcher component here.
 import { useTheme } from 'next-themes'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   Shuffle,
   SkipBack,
@@ -18,7 +18,7 @@ import {
   Sparkles,
   DownloadCloud,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 interface NavScreenProps {
   navLinks: { name: string; href: string; id: string }[]
@@ -65,6 +65,75 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
     [navLinks, pathname]
   )
 
+  const router = useRouter()
+  const [shuffle, setShuffle] = useState(false)
+  const [repeat, setRepeat] = useState(false)
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const getPlaylistTarget = useCallback(
+    (delta: number) => {
+      if (!navLinks.length) return null
+      if (shuffle) {
+        const others = navLinks.filter((link) => link.href !== pathname)
+        const pool = others.length ? others : navLinks
+        return pool[Math.floor(Math.random() * pool.length)] ?? null
+      }
+      const currentIndex = navLinks.findIndex((link) => link.href === pathname)
+      const baseIndex = currentIndex === -1 ? 0 : currentIndex
+      const nextIndex = (baseIndex + delta + navLinks.length) % navLinks.length
+      return navLinks[nextIndex] ?? null
+    },
+    [navLinks, pathname, shuffle]
+  )
+
+  const navigatePlaylist = (delta: number) => {
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
+    const nextLink = getPlaylistTarget(delta)
+    if (!nextLink) return
+    setPendingHref(nextLink.href)
+    pendingTimerRef.current = setTimeout(() => {
+      router.push(nextLink.href)
+      onClose()
+    }, 1000)
+  }
+
+  // cancel pending navigation on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current)
+    }
+  }, [])
+
+  const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = Math.min(
+      100,
+      Math.max(0, ((e.clientX - rect.left) / rect.width) * 100)
+    )
+    setScrollProgress(pct)
+    setTimeout(() => {
+      const maxScroll =
+        document.documentElement.scrollHeight - window.innerHeight
+      const targetY = (pct / 100) * maxScroll
+      onClose()
+      // wait for the NavScreen exit animation to finish before scrolling
+      setTimeout(() => {
+        const startY = window.scrollY
+        const distance = targetY - startY
+        const duration = 800
+        const startTime = performance.now()
+        const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
+        const step = (now: number) => {
+          const t = Math.min(1, (now - startTime) / duration)
+          window.scrollTo(0, startY + distance * easeOut(t))
+          if (t < 1) requestAnimationFrame(step)
+        }
+        requestAnimationFrame(step)
+      }, 150)
+    }, 800)
+  }
+
   useEffect(() => {
     // Lock page scrolling while the menu overlay is mounted. The overlay itself
     // should be fixed and only the internal playlist should scroll. Without
@@ -86,6 +155,9 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
+
+  const prevTarget = shuffle ? null : getPlaylistTarget(-1)
+  const nextTarget = shuffle ? null : getPlaylistTarget(1)
 
   // separate effect for tracking scroll progress of the background page. this
   // updates a fake "playhead" style progress bar in the menu
@@ -158,12 +230,16 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
                     href={link.href}
                     onClick={onClose}
                     className={`cursor-target group/row grid grid-cols-[42px_1fr_auto] items-center gap-3 px-6 py-4 md:py-6 border-b border-foreground/10 transition-all rounded-lg ${
-                      link.active ? 'bg-foreground/5' : 'hover:bg-foreground/2'
+                      (pendingHref ? link.href === pendingHref : link.active)
+                        ? 'bg-foreground/5'
+                        : 'hover:bg-foreground/2'
                     }`}
                   >
                     <span
                       className={`relative h-9 w-9 grid place-items-center border border-foreground/15 bg-background text-foreground overflow-hidden rounded-lg group-hover/row:rounded-xl transition-[border-radius] duration-200 ${
-                        link.active ? 'ring-1 ring-primary-blue/50' : ''
+                        (pendingHref ? link.href === pendingHref : link.active)
+                          ? 'ring-1 ring-primary-blue/50'
+                          : ''
                       }`}
                       aria-hidden
                     >
@@ -176,7 +252,9 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
 
                     <span
                       className={`text-base md:text-lg font-bold tracking-tight transition-colors ${
-                        link.active ? 'text-primary-blue' : 'text-foreground'
+                        (pendingHref ? link.href === pendingHref : link.active)
+                          ? 'text-primary-blue'
+                          : 'text-foreground'
                       }`}
                     >
                       {link.name}
@@ -199,9 +277,18 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
                 .toISOString()
                 .substr(14, 5)}
             </span>
-            <div className="relative h-1.5 flex-1 bg-foreground/10 overflow-hidden rounded-full transition-[border-radius] duration-200">
+            <div
+              role="slider"
+              aria-label="スクロール位置"
+              aria-valuenow={Math.round(scrollProgress)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              tabIndex={0}
+              onClick={handleProgressBarClick}
+              className="relative h-1.5 flex-1 bg-foreground/10 overflow-hidden rounded-full transition-[border-radius] duration-200 cursor-pointer hover:h-2.5 group/bar"
+            >
               <div
-                className="absolute inset-y-0 left-0 bg-primary-blue transition-all duration-200"
+                className="absolute inset-y-0 left-0 bg-primary-blue transition-all duration-200 group-hover/bar:bg-primary-blue/80"
                 style={{ width: `${scrollProgress}%` }}
               />
             </div>
@@ -213,14 +300,22 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
             <div className="flex items-center gap-4">
               <button
                 type="button"
-                className="hidden sm:inline-flex p-2 border border-foreground/15 bg-background hover:bg-foreground/5 transition-colors rounded-lg hover:rounded-xl"
+                onClick={() => setShuffle((s) => !s)}
+                className={`cursor-target hidden sm:inline-flex p-2 border transition-colors rounded-lg hover:rounded-xl ${
+                  shuffle
+                    ? 'border-primary-blue/50 bg-primary-blue/10 hover:bg-primary-blue/15'
+                    : 'border-foreground/15 bg-background hover:bg-foreground/5'
+                }`}
                 aria-label="Shuffle"
+                aria-pressed={shuffle}
               >
                 <Shuffle size={18} className="text-primary-blue" />
               </button>
               <button
                 type="button"
-                className="p-2 border border-foreground/15 bg-background hover:bg-foreground/5 transition-colors rounded-lg hover:rounded-xl"
+                onClick={() => navigatePlaylist(-1)}
+                title={prevTarget ? `「${prevTarget.name}」に移動` : undefined}
+                className="cursor-target p-2 border border-foreground/15 bg-background hover:bg-foreground/5 transition-colors rounded-lg hover:rounded-xl"
                 aria-label="Previous"
               >
                 <SkipBack size={20} className="text-foreground" />
@@ -244,18 +339,29 @@ export default function NavScreen({ navLinks, onClose }: NavScreenProps) {
               </button>
               <button
                 type="button"
-                className="p-2 border border-foreground/15 bg-background hover:bg-foreground/5 transition-colors rounded-lg hover:rounded-xl"
+                onClick={() => navigatePlaylist(1)}
+                title={nextTarget ? `「${nextTarget.name}」に移動` : undefined}
+                className="cursor-target p-2 border border-foreground/15 bg-background hover:bg-foreground/5 transition-colors rounded-lg hover:rounded-xl"
                 aria-label="Next"
               >
                 <SkipForward size={20} className="text-foreground" />
               </button>
               <button
                 type="button"
-                className="hidden sm:inline-flex p-2 border border-foreground/15 bg-background hover:bg-foreground/5 transition-colors rounded-lg hover:rounded-xl"
+                onClick={() => setRepeat((r) => !r)}
+                className={`cursor-target hidden sm:inline-flex p-2 border transition-colors rounded-lg hover:rounded-xl ${
+                  repeat
+                    ? 'border-primary-pink/50 bg-primary-pink/10 hover:bg-primary-pink/15'
+                    : 'border-foreground/15 bg-background hover:bg-foreground/5'
+                }`}
                 aria-label="Repeat"
+                aria-pressed={repeat}
               >
                 <Repeat2 size={18} className="text-primary-pink" />
               </button>
+              <div className="hidden sm:flex items-center justify-end text-xs text-foreground/70">
+                &lt;- これ使えるよ　押してみて！
+              </div>
             </div>
 
             <div className="hidden sm:flex items-end gap-4">
