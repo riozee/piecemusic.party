@@ -4,7 +4,6 @@ import { notFound } from 'next/navigation'
 import { MDXContent } from '@/components/mdx-content'
 import Image from 'next/image'
 import Button from '@/components/Button'
-import AccessCardDownloadButton from '@/components/AccessCardDownloadButton'
 import { absoluteUrl, siteConfig } from '@/lib/site-config'
 import { ClickableImageTrigger } from '@/components/ClickableImage'
 
@@ -280,14 +279,11 @@ export default async function WorkPage(props: WorkPageProps) {
 
               {/* Links loop */}
               <div className="flex flex-col gap-2 mt-4">
-                {work.download &&
-                  (work.accessCard ? (
-                    <AccessCardDownloadButton downloadUrl={work.download} />
-                  ) : (
-                    <Button href={work.download} variant="warning">
-                      <span className="relative z-10">ダウンロード &gt;</span>
-                    </Button>
-                  ))}
+                {work.download && (
+                  <Button href={work.download} variant="warning">
+                    <span className="relative z-10">ダウンロード &gt;</span>
+                  </Button>
+                )}
 
                 {work.links?.map((link) => (
                   <Button key={link.url} href={link.url} variant="outline">

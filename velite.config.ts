@@ -68,12 +68,9 @@ export default defineConfig({
           cover: s.string().optional(), // Artwork
           // `audio` and `video` fields have been removed from the schema.
           // instead we now support an optional `download` field which can
-          // point to an external file or asset the user can fetch.
-          download: s.string().optional(), // Download URL (e.g. MP3, ZIP)
-          // When true, the download link leads to a password-protected
-          // access-card site.  A modal with instructions and cautions
-          // will be shown before redirecting.
-          accessCard: s.boolean().default(false),
+          // point to a redirect to the on-site album download page.
+          // Example: https://piecemusic.party/download/[album]
+          download: s.string().optional(), // Download page URL on this site
 
           // Staff Credits
           vocal: s.string().optional(),
