@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import { useTurnstile } from '@/lib/useTurnstile'
@@ -13,11 +14,35 @@ interface PasscodeGateProps {
 /**
  * Gate UI — prompts for a passcode, validates via /api/access (verify mode),
  * and calls `onUnlock` with the valid code.
+ *
+ * Supports ?code=XXXX — pre-fills and auto-submits the passcode.
  */
+const LS_KEY = 'portal_codes'
+
+function readCodeFromStorage(albumId: string): string {
+  try {
+    const stored: Record<string, string> = JSON.parse(
+      localStorage.getItem(LS_KEY) ?? '{}'
+    )
+    return stored[albumId] ?? ''
+  } catch {
+    return ''
+  }
+}
+
 export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
-  const [code, setCode] = useState('')
+  const searchParams = useSearchParams()
+  const autoCode = searchParams.get('code')
+
+  const [code, setCode] = useState(() => {
+    // ?code= takes priority (and will auto-submit)
+    if (autoCode) return autoCode
+    // Otherwise pre-fill from localStorage — no auto-submit
+    return readCodeFromStorage(albumId)
+  })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const autoSubmittedRef = useRef(false)
 
   const { containerRef, widgetReady, getToken, reset } = useTurnstile()
 
@@ -25,20 +50,19 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
   // this branch is completely dead-code-eliminated in production builds.
   const isDev = process.env.NODE_ENV === 'development'
 
-  // ---- Submit handler ------------------------------------------------------
-  const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault()
+  // ---- Core submit logic (accepts explicit code value) ---------------------
+  const doSubmit = useCallback(
+    async (codeValue: string) => {
       setError(null)
 
-      if (!code.trim()) {
+      if (!codeValue) {
         setError('パスコードを入力してください。')
         return
       }
 
       // Dev bypass — skip Turnstile and API entirely
       if (isDev) {
-        onUnlock(code.trim())
+        onUnlock(codeValue)
         return
       }
 
@@ -50,14 +74,14 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            code: code.trim(),
+            code: codeValue,
             album_id: albumId,
             token,
           }),
         })
 
         if (res.ok) {
-          onUnlock(code.trim())
+          onUnlock(codeValue)
           return
         }
 
@@ -75,8 +99,27 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
         setLoading(false)
       }
     },
-    [code, albumId, isDev, onUnlock, getToken, reset]
+    [albumId, isDev, onUnlock, getToken, reset]
   )
+
+  // ---- Form submit handler -------------------------------------------------
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      doSubmit(code.trim())
+    },
+    [code, doSubmit]
+  )
+
+  // ---- Auto-submit when ?code= is present ----------------------------------
+  // In dev: fire on mount.
+  // In prod: wait until Turnstile widget is ready before submitting.
+  useEffect(() => {
+    if (!autoCode || autoSubmittedRef.current) return
+    if (!isDev && !widgetReady) return
+    autoSubmittedRef.current = true
+    doSubmit(autoCode.trim())
+  }, [autoCode, isDev, widgetReady, doSubmit])
 
   return (
     <div className="flex items-center justify-center min-h-[60vh]">

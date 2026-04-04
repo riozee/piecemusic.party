@@ -17,12 +17,30 @@ interface AlbumPortalProps {
  * Top-level client component for an album download page.
  * Renders PasscodeGate first; once unlocked, lazy-loads and shows PortalInner.
  */
+const LS_KEY = 'portal_codes'
+
+function saveCodeToStorage(albumId: string, code: string) {
+  try {
+    const stored: Record<string, string> = JSON.parse(
+      localStorage.getItem(LS_KEY) ?? '{}'
+    )
+    stored[albumId] = code
+    localStorage.setItem(LS_KEY, JSON.stringify(stored))
+  } catch {
+    // localStorage unavailable (SSR, private mode, etc.) — silently ignore
+  }
+}
+
 export default function AlbumPortal({ data }: AlbumPortalProps) {
   const [unlockedCode, setUnlockedCode] = useState<string | null>(null)
 
-  const handleUnlock = useCallback((code: string) => {
-    setUnlockedCode(code)
-  }, [])
+  const handleUnlock = useCallback(
+    (code: string) => {
+      saveCodeToStorage(data.album.id, code)
+      setUnlockedCode(code)
+    },
+    [data.album.id]
+  )
 
   return (
     <div className="container mx-auto max-w-6xl p-3 pt-12 mb-24">
@@ -36,7 +54,17 @@ export default function AlbumPortal({ data }: AlbumPortalProps) {
       </div>
 
       {!unlockedCode ? (
-        <PasscodeGate albumId={data.album.id} onUnlock={handleUnlock} />
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center min-h-[60vh]">
+              <p className="font-mono text-sm opacity-50 animate-pulse">
+                Loading…
+              </p>
+            </div>
+          }
+        >
+          <PasscodeGate albumId={data.album.id} onUnlock={handleUnlock} />
+        </Suspense>
       ) : (
         <Suspense
           fallback={
