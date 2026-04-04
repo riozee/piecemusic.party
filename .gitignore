@@ -46,3 +46,5 @@ x-scraper/tweets.json
 x-scraper/tweets.html
 
 manage-codes/passcodes.csv
+
+wrangler.jsonc
