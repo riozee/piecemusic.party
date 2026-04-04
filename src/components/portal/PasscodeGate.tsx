@@ -21,6 +21,10 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
 
   const { containerRef, widgetReady, getToken, reset } = useTurnstile()
 
+  // Next.js inlines process.env.NODE_ENV as a string literal at build time —
+  // this branch is completely dead-code-eliminated in production builds.
+  const isDev = process.env.NODE_ENV === 'development'
+
   // ---- Submit handler ------------------------------------------------------
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -29,6 +33,12 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
 
       if (!code.trim()) {
         setError('パスコードを入力してください。')
+        return
+      }
+
+      // Dev bypass — skip Turnstile and API entirely
+      if (isDev) {
+        onUnlock(code.trim())
         return
       }
 
@@ -65,7 +75,7 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
         setLoading(false)
       }
     },
-    [code, albumId, onUnlock, getToken, reset]
+    [code, albumId, isDev, onUnlock, getToken, reset]
   )
 
   return (
@@ -93,8 +103,8 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
               onChange={(e) => setCode(e.target.value)}
               autoComplete="off"
               spellCheck={false}
-              placeholder="XXXX-XXXX-XXXX"
-              className="w-full bg-transparent border border-foreground/40 px-4 py-3 font-mono text-sm tracking-widest focus:outline-none focus:border-primary-blue transition-colors"
+              placeholder="XXXXXXXX"
+              className="cursor-target w-full bg-transparent border border-foreground/40 px-4 py-3 font-mono text-sm tracking-widest focus:outline-none focus:border-primary-blue transition-colors"
             />
           </div>
 
@@ -111,7 +121,7 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
             type="submit"
             variant="primary"
             className="w-full"
-            disabled={loading || !widgetReady}
+            disabled={loading || (!isDev && !widgetReady)}
           >
             {loading ? '検証中…' : 'アクセス'}
           </Button>

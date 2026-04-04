@@ -114,7 +114,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     body = (await request.json()) as RequestBody
   } catch {
-    return json({ error: 'Invalid JSON body' }, 400)
+    return json(
+      {
+        error:
+          'リクエストの形式が正しくありません。ページを再読み込みしてもう一度お試しください。',
+      },
+      400
+    )
   }
 
   const {
@@ -128,7 +134,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   if (!code || !album_id || !token) {
     return json(
-      { error: 'Missing required fields: code, album_id, token' },
+      {
+        error:
+          '必要な情報が不足しています。ページを再読み込みしてもう一度お試しください。',
+      },
       400
     )
   }
@@ -136,7 +145,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   // ---- Turnstile verification ----------------------------------------------
   const turnstileOk = await verifyTurnstile(token, ip, env.TURNSTILE_SECRET_KEY)
   if (!turnstileOk) {
-    return json({ error: 'Turnstile verification failed' }, 403)
+    return json(
+      {
+        error:
+          'セキュリティ検証に失敗しました。ページを再読み込みして再度お試しください。解決しない場合はパスコードカードに記載の連絡先までお問い合わせください。',
+      },
+      403
+    )
   }
 
   // ---- Passcode lookup -----------------------------------------------------
@@ -145,23 +160,47 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     .first<PasscodeRow>()
 
   if (!row) {
-    return json({ error: 'Passcode not found' }, 404)
+    return json(
+      {
+        error:
+          'パスコードが見つかりませんでした。入力内容をご確認のうえ、もう一度お試しください。',
+      },
+      404
+    )
   }
 
   if (row.is_suspended) {
-    return json({ error: 'This passcode has been suspended' }, 403)
+    return json(
+      {
+        error:
+          'このパスコードは無効化されています。お心当たりがない場合は、パスコードカードに記載の連絡先までお問い合わせください。',
+      },
+      403
+    )
   }
 
   // Check album match
   if (row.album_id !== album_id) {
-    return json({ error: 'Passcode does not match this album' }, 403)
+    return json(
+      {
+        error:
+          'このパスコードは別のアルバム用です。正しいダウンロードページをご確認ください。',
+      },
+      403
+    )
   }
 
   // Check expiry (valid_duration 0 = never expires)
   if (row.valid_duration > 0) {
     const now = Math.floor(Date.now() / 1000)
     if (now > row.issued_at + row.valid_duration) {
-      return json({ error: 'Passcode has expired' }, 403)
+      return json(
+        {
+          error:
+            'このパスコードの有効期限が切れています。新しいパスコードが必要な場合は、パスコードカードに記載の連絡先までお問い合わせください。',
+        },
+        403
+      )
     }
   }
 
@@ -191,7 +230,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         .run()
 
       return json(
-        { error: 'Too many devices. This passcode has been suspended.' },
+        {
+          error:
+            '利用端末数が上限を超えたため、このパスコードは自動的に無効化されました。お心当たりがない場合は、パスコードカードに記載の連絡先までお問い合わせください。',
+        },
         403
       )
     }
@@ -201,7 +243,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return json(
         {
           error:
-            'Device limit reached. Please use a previously authorised device.',
+            '登録済み端末の上限に達しました。以前ご利用になった端末からアクセスするか、24時間後、もう一度お試しください。',
         },
         429
       )
@@ -234,12 +276,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   // ---- Action: verify ------------------------------------------------------
   if (action === 'verify' || !filename) {
-    return json({ message: 'Access Granted' }, 200)
+    return json({ message: 'アクセスが承認されました' }, 200)
   }
 
   // Security: filename must be scoped under the album and must not allow traversal
   if (!filename.startsWith(`${album_id}/`) || !isSafePath(filename)) {
-    return json({ error: 'Invalid filename for this album' }, 403)
+    return json(
+      {
+        error:
+          '不正なファイルパスです。ページを再読み込みしてもう一度お試しください。',
+      },
+      403
+    )
   }
 
   // ---- Action: stream (generate signed ticket URL) -------------------------
@@ -254,7 +302,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   // ---- Action: download (binary file delivery) -----------------------------
   const object = await env.R2_BUCKET.get(filename)
   if (!object) {
-    return json({ error: 'File not found' }, 404)
+    return json(
+      {
+        error: 'ファイルが見つかりませんでした。',
+      },
+      404
+    )
   }
 
   const headers = new Headers()
@@ -287,30 +340,51 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const sig = url.searchParams.get('sig')
 
   if (!file || !exp || !sig) {
-    return json({ error: 'Missing stream parameters' }, 400)
+    return json(
+      {
+        error:
+          'ストリーミングパラメータが不足しています。ページを再読み込みしてください。',
+      },
+      400
+    )
   }
 
   if (!isSafePath(file)) {
-    return json({ error: 'Invalid file path' }, 403)
+    return json({ error: '不正なファイルパスです。' }, 403)
   }
 
   // Check expiration
   const expNum = Number(exp)
   const now = Math.floor(Date.now() / 1000)
   if (now > expNum) {
-    return json({ error: 'Stream ticket expired' }, 403)
+    return json(
+      {
+        error: 'ストリーミングチケットの有効期限が切れました。',
+      },
+      403
+    )
   }
 
   // Verify signature
   const expected = await signString(`${file}:${exp}`, env.STREAM_SECRET)
   if (sig !== expected) {
-    return json({ error: 'Invalid stream signature' }, 403)
+    return json(
+      {
+        error: 'ストリーミング署名が無効です。ページを再読み込みしてください。',
+      },
+      403
+    )
   }
 
   // Fetch from R2
   const object = await env.R2_BUCKET.get(file)
   if (!object) {
-    return json({ error: 'File not found' }, 404)
+    return json(
+      {
+        error: 'ファイルが見つかりませんでした。',
+      },
+      404
+    )
   }
 
   const headers = new Headers()
