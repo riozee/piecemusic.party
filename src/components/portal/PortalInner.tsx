@@ -4,9 +4,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
+import { useTurnstile } from '@/lib/useTurnstile'
 import type { AlbumData, Track } from './types'
-
-const TURNSTILE_SITE_KEY = '0x4AAAAAAC0hXP71wg9xv4ji'
 
 interface PortalInnerProps {
   data: AlbumData
@@ -25,112 +24,15 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
   const [streamUrl, setStreamUrl] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
 
-  // Track Turnstile token for download requests
-  const tokenRef = useRef<string | null>(null)
-  const turnstileContainerRef = useRef<HTMLDivElement>(null)
-  const widgetIdRef = useRef<string | null>(null)
+  const {
+    containerRef: turnstileContainerRef,
+    getToken,
+    reset: resetTurnstile,
+  } = useTurnstile({ size: 'invisible' })
   const audioRef = useRef<HTMLAudioElement>(null)
   const currentTimeRef = useRef(0)
 
   const selected: Track | undefined = tracks[selectedIdx]
-
-  // ---- Turnstile (hidden, auto-refresh for download tokens) ----------------
-  useEffect(() => {
-    function tryRender() {
-      const ts = (
-        window as unknown as Record<
-          string,
-          {
-            render: (el: HTMLElement, opts: Record<string, unknown>) => string
-            remove: (id: string) => void
-          }
-        >
-      ).turnstile
-
-      if (!ts || !turnstileContainerRef.current) return
-
-      // Remove existing widget if re-rendering
-      if (widgetIdRef.current !== null) {
-        ts.remove(widgetIdRef.current)
-      }
-
-      widgetIdRef.current = ts.render(turnstileContainerRef.current, {
-        sitekey: TURNSTILE_SITE_KEY,
-        // execution:'execute' keeps the widget dormant until ts.execute() is
-        // called explicitly, so no token is generated until the user acts.
-        execution: 'execute',
-        callback: (token: string) => {
-          tokenRef.current = token
-        },
-        'expired-callback': () => {
-          tokenRef.current = null
-        },
-        'error-callback': () => {
-          tokenRef.current = null
-        },
-        size: 'invisible',
-        theme: 'dark',
-      })
-    }
-
-    // Turnstile SDK may already be loaded from the Gate step
-    const SCRIPT_ID = 'cf-turnstile-script'
-    if (document.getElementById(SCRIPT_ID)) {
-      // Wait a tick for the SDK to initialise
-      const timer = setTimeout(tryRender, 300)
-      return () => clearTimeout(timer)
-    }
-
-    // Load if somehow not already present
-    const script = document.createElement('script')
-    script.id = SCRIPT_ID
-    script.src =
-      'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onTurnstileLoadInner'
-    script.async = true
-    ;(window as unknown as Record<string, unknown>).onTurnstileLoadInner =
-      tryRender
-    document.head.appendChild(script)
-
-    return () => {
-      const ts2 = (
-        window as unknown as Record<string, { remove: (id: string) => void }>
-      ).turnstile
-      if (ts2 && widgetIdRef.current !== null) {
-        ts2.remove(widgetIdRef.current)
-      }
-    }
-  }, [])
-
-  // ---- Refresh token helper (always requests a fresh token on demand) ------
-  const refreshToken = useCallback((): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const ts = (
-        window as unknown as Record<string, { execute: (id: string) => void }>
-      ).turnstile
-
-      if (!ts || widgetIdRef.current === null) {
-        reject(new Error('Turnstile widget not ready'))
-        return
-      }
-
-      // Always discard any stale token before triggering a fresh challenge
-      tokenRef.current = null
-      ts.execute(widgetIdRef.current)
-
-      // Poll for the fresh token (max ~5 s)
-      let attempts = 0
-      const interval = setInterval(() => {
-        attempts++
-        if (tokenRef.current) {
-          clearInterval(interval)
-          resolve(tokenRef.current)
-        } else if (attempts > 25) {
-          clearInterval(interval)
-          reject(new Error('Turnstile token timeout'))
-        }
-      }, 200)
-    })
-  }, [])
 
   // ---- Download handler ----------------------------------------------------
   const handleDownload = useCallback(
@@ -139,7 +41,7 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
       setDownloading(true)
 
       try {
-        const token = await refreshToken()
+        const token = await getToken()
 
         const res = await fetch('/api/access', {
           method: 'POST',
@@ -171,25 +73,24 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
         a.click()
         a.remove()
         URL.revokeObjectURL(url)
-
-        // Invalidate the consumed token so next download gets a fresh one
-        tokenRef.current = null
       } catch (e) {
         setError(
           e instanceof Error ? e.message : 'ネットワークエラーが発生しました。'
         )
       } finally {
+        // Turnstile tokens are single-use — always reset after request
+        resetTurnstile()
         setDownloading(false)
       }
     },
-    [code, album.id, refreshToken]
+    [code, album.id, getToken, resetTurnstile]
   )
 
   // ---- Stream request (for <audio> playback) --------------------------------
   const requestStream = useCallback(
     async (track: Track): Promise<string | null> => {
       try {
-        const token = await refreshToken()
+        const token = await getToken()
         const res = await fetch('/api/access', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -211,14 +112,16 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
         }
 
         const body = (await res.json()) as { streamUrl?: string }
-        tokenRef.current = null
         return body.streamUrl ?? null
       } catch {
         setError('ネットワークエラーが発生しました。')
         return null
+      } finally {
+        // Turnstile tokens are single-use — always reset after request
+        resetTurnstile()
       }
     },
-    [code, album.id, refreshToken]
+    [code, album.id, getToken, resetTurnstile]
   )
 
   // ---- Play handler ---------------------------------------------------------

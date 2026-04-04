@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
-
-const TURNSTILE_SITE_KEY = '0x4AAAAAAC0hXP71wg9xv4ji'
+import { useTurnstile } from '@/lib/useTurnstile'
 
 interface PasscodeGateProps {
   albumId: string
@@ -19,110 +18,8 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [widgetLoaded, setWidgetLoaded] = useState(false)
-  const turnstileRef = useRef<HTMLDivElement>(null)
-  const widgetIdRef = useRef<string | null>(null)
-  // tokenRef holds the fresh token delivered by the callback after execute()
-  const tokenRef = useRef<string | null>(null)
 
-  // ---- Load Turnstile script once ------------------------------------------
-  useEffect(() => {
-    const SCRIPT_ID = 'cf-turnstile-script'
-    if (document.getElementById(SCRIPT_ID)) {
-      // Script already loaded — render widget directly
-      renderWidget()
-      return
-    }
-
-    const script = document.createElement('script')
-    script.id = SCRIPT_ID
-    script.src =
-      'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onTurnstileLoad'
-    script.async = true
-
-    // Global callback invoked by Turnstile SDK once loaded
-    ;(window as unknown as Record<string, unknown>).onTurnstileLoad = () => {
-      renderWidget()
-    }
-
-    document.head.appendChild(script)
-
-    return () => {
-      // Cleanup widget on unmount
-      if (
-        widgetIdRef.current !== null &&
-        (window as unknown as Record<string, { remove: (id: string) => void }>)
-          .turnstile
-      ) {
-        ;(
-          window as unknown as Record<string, { remove: (id: string) => void }>
-        ).turnstile.remove(widgetIdRef.current)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  function renderWidget() {
-    const ts = (
-      window as unknown as Record<
-        string,
-        {
-          render: (el: HTMLElement, opts: Record<string, unknown>) => string
-        }
-      >
-    ).turnstile
-
-    if (!ts || !turnstileRef.current) return
-
-    widgetIdRef.current = ts.render(turnstileRef.current, {
-      sitekey: TURNSTILE_SITE_KEY,
-      // execution:'execute' keeps widget dormant — token is only generated
-      // when ts.execute() is called explicitly (i.e. at submit time).
-      execution: 'execute',
-      callback: (token: string) => {
-        tokenRef.current = token
-      },
-      'expired-callback': () => {
-        tokenRef.current = null
-      },
-      'error-callback': () => {
-        tokenRef.current = null
-      },
-      theme: 'dark',
-    })
-    setWidgetLoaded(true)
-  }
-
-  // ---- Get a fresh token on-demand ----------------------------------------
-  const getFreshToken = useCallback((): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const ts = (
-        window as unknown as Record<string, { execute: (id: string) => void }>
-      ).turnstile
-
-      if (!ts || widgetIdRef.current === null) {
-        reject(new Error('Turnstile widget not ready'))
-        return
-      }
-
-      // Always discard any stale token before requesting a new one
-      tokenRef.current = null
-      ts.execute(widgetIdRef.current)
-
-      // Poll for the fresh token (max ~5 s)
-      let attempts = 0
-      const interval = setInterval(() => {
-        attempts++
-        if (tokenRef.current) {
-          clearInterval(interval)
-          resolve(tokenRef.current)
-        } else if (attempts > 25) {
-          clearInterval(interval)
-          reject(new Error('Turnstile token timeout'))
-        }
-      }, 200)
-    })
-  }, [])
+  const { containerRef, widgetReady, getToken, reset } = useTurnstile()
 
   // ---- Submit handler ------------------------------------------------------
   const handleSubmit = useCallback(
@@ -137,7 +34,7 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
 
       setLoading(true)
       try {
-        const token = await getFreshToken()
+        const token = await getToken()
 
         const res = await fetch('/api/access', {
           method: 'POST',
@@ -163,10 +60,12 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
             : 'ネットワークエラーが発生しました。'
         )
       } finally {
+        // Turnstile tokens are single-use — always reset after request
+        reset()
         setLoading(false)
       }
     },
-    [code, albumId, onUnlock, getFreshToken]
+    [code, albumId, onUnlock, getToken, reset]
   )
 
   return (
@@ -200,7 +99,7 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
           </div>
 
           {/* Turnstile widget container */}
-          <div ref={turnstileRef} className="flex justify-center" />
+          <div ref={containerRef} className="flex justify-center" />
 
           {error && (
             <div className="text-sm text-primary-pink border border-primary-pink/30 bg-primary-pink/5 px-4 py-2 font-mono">
@@ -212,7 +111,7 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
             type="submit"
             variant="primary"
             className="w-full"
-            disabled={loading || !widgetLoaded}
+            disabled={loading || !widgetReady}
           >
             {loading ? '検証中…' : 'アクセス'}
           </Button>
