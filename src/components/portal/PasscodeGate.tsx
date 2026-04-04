@@ -19,9 +19,10 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [turnstileReady, setTurnstileReady] = useState(false)
+  const [widgetLoaded, setWidgetLoaded] = useState(false)
   const turnstileRef = useRef<HTMLDivElement>(null)
   const widgetIdRef = useRef<string | null>(null)
+  // tokenRef holds the fresh token delivered by the callback after execute()
   const tokenRef = useRef<string | null>(null)
 
   // ---- Load Turnstile script once ------------------------------------------
@@ -75,17 +76,53 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
 
     widgetIdRef.current = ts.render(turnstileRef.current, {
       sitekey: TURNSTILE_SITE_KEY,
+      // execution:'execute' keeps widget dormant — token is only generated
+      // when ts.execute() is called explicitly (i.e. at submit time).
+      execution: 'execute',
       callback: (token: string) => {
         tokenRef.current = token
-        setTurnstileReady(true)
       },
       'expired-callback': () => {
         tokenRef.current = null
-        setTurnstileReady(false)
+      },
+      'error-callback': () => {
+        tokenRef.current = null
       },
       theme: 'dark',
     })
+    setWidgetLoaded(true)
   }
+
+  // ---- Get a fresh token on-demand ----------------------------------------
+  const getFreshToken = useCallback((): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const ts = (
+        window as unknown as Record<string, { execute: (id: string) => void }>
+      ).turnstile
+
+      if (!ts || widgetIdRef.current === null) {
+        reject(new Error('Turnstile widget not ready'))
+        return
+      }
+
+      // Always discard any stale token before requesting a new one
+      tokenRef.current = null
+      ts.execute(widgetIdRef.current)
+
+      // Poll for the fresh token (max ~5 s)
+      let attempts = 0
+      const interval = setInterval(() => {
+        attempts++
+        if (tokenRef.current) {
+          clearInterval(interval)
+          resolve(tokenRef.current)
+        } else if (attempts > 25) {
+          clearInterval(interval)
+          reject(new Error('Turnstile token timeout'))
+        }
+      }, 200)
+    })
+  }, [])
 
   // ---- Submit handler ------------------------------------------------------
   const handleSubmit = useCallback(
@@ -97,20 +134,18 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
         setError('パスコードを入力してください。')
         return
       }
-      if (!tokenRef.current) {
-        setError('Turnstile を完了してください。')
-        return
-      }
 
       setLoading(true)
       try {
+        const token = await getFreshToken()
+
         const res = await fetch('/api/access', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             code: code.trim(),
             album_id: albumId,
-            token: tokenRef.current,
+            token,
           }),
         })
 
@@ -121,13 +156,17 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
 
         const data = (await res.json()) as { error?: string }
         setError(data.error ?? `エラーが発生しました (${res.status})`)
-      } catch {
-        setError('ネットワークエラーが発生しました。')
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'ネットワークエラーが発生しました。'
+        )
       } finally {
         setLoading(false)
       }
     },
-    [code, albumId, onUnlock]
+    [code, albumId, onUnlock, getFreshToken]
   )
 
   return (
@@ -173,7 +212,7 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
             type="submit"
             variant="primary"
             className="w-full"
-            disabled={loading || !turnstileReady}
+            disabled={loading || !widgetLoaded}
           >
             {loading ? '検証中…' : 'アクセス'}
           </Button>

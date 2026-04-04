@@ -56,13 +56,17 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
 
       widgetIdRef.current = ts.render(turnstileContainerRef.current, {
         sitekey: TURNSTILE_SITE_KEY,
+        // execution:'execute' keeps the widget dormant until ts.execute() is
+        // called explicitly, so no token is generated until the user acts.
+        execution: 'execute',
         callback: (token: string) => {
           tokenRef.current = token
         },
         'expired-callback': () => {
           tokenRef.current = null
-          // Re-render widget when token expires
-          tryRender()
+        },
+        'error-callback': () => {
+          tokenRef.current = null
         },
         size: 'invisible',
         theme: 'dark',
@@ -97,28 +101,23 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
     }
   }, [])
 
-  // ---- Refresh token helper ------------------------------------------------
+  // ---- Refresh token helper (always requests a fresh token on demand) ------
   const refreshToken = useCallback((): Promise<string> => {
     return new Promise((resolve, reject) => {
       const ts = (
-        window as unknown as Record<
-          string,
-          {
-            reset: (id: string) => void
-          }
-        >
+        window as unknown as Record<string, { execute: (id: string) => void }>
       ).turnstile
 
-      if (tokenRef.current) {
-        resolve(tokenRef.current)
+      if (!ts || widgetIdRef.current === null) {
+        reject(new Error('Turnstile widget not ready'))
         return
       }
 
-      if (ts && widgetIdRef.current !== null) {
-        ts.reset(widgetIdRef.current)
-      }
+      // Always discard any stale token before triggering a fresh challenge
+      tokenRef.current = null
+      ts.execute(widgetIdRef.current)
 
-      // Poll for token (max ~5 s)
+      // Poll for the fresh token (max ~5 s)
       let attempts = 0
       const interval = setInterval(() => {
         attempts++
