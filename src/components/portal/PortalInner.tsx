@@ -80,125 +80,6 @@ function TrackCredits({
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* Sub-component: Custom audio player with slider + controls          */
-/* ------------------------------------------------------------------ */
-function AudioPlayer({
-  streamUrl,
-  audioRef,
-  onError,
-  onTimeUpdate,
-}: {
-  streamUrl: string
-  audioRef: React.RefObject<HTMLAudioElement | null>
-  onError: () => void
-  onTimeUpdate: () => void
-}) {
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [playing, setPlaying] = useState(false)
-  const [volume, setVolume] = useState(1)
-
-  const fmt = (s: number) => {
-    const m = Math.floor(s / 60)
-    const sec = Math.floor(s % 60)
-    return `${m}:${sec.toString().padStart(2, '0')}`
-  }
-
-  const handleLoaded = () => {
-    if (audioRef.current) {
-      setDuration(audioRef.current.duration || 0)
-    }
-  }
-
-  const handleTimeUpdate = () => {
-    if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime)
-    }
-    onTimeUpdate()
-  }
-
-  const handlePlay = () => setPlaying(true)
-  const handlePause = () => setPlaying(false)
-
-  const togglePlay = () => {
-    if (!audioRef.current) return
-    if (playing) {
-      audioRef.current.pause()
-    } else {
-      audioRef.current.play().catch(() => {})
-    }
-  }
-
-  const seek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const t = Number(e.target.value)
-    setCurrentTime(t)
-    if (audioRef.current) audioRef.current.currentTime = t
-  }
-
-  const changeVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = Number(e.target.value)
-    setVolume(v)
-    if (audioRef.current) audioRef.current.volume = v
-  }
-
-  return (
-    <div className="space-y-3">
-      {/* Hidden native audio element */}
-      <audio
-        ref={audioRef}
-        src={streamUrl}
-        autoPlay
-        onLoadedMetadata={handleLoaded}
-        onTimeUpdate={handleTimeUpdate}
-        onPlay={handlePlay}
-        onPause={handlePause}
-        onError={onError}
-      />
-      {/* Seek slider */}
-      <input
-        type="range"
-        min={0}
-        max={duration || 1}
-        step={0.1}
-        value={currentTime}
-        onChange={seek}
-        className="cursor-target w-full h-1 accent-primary-blue cursor-pointer appearance-none bg-foreground/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary-blue"
-      />
-      {/* Time display */}
-      <div className="flex items-center justify-between text-[10px] font-mono opacity-50">
-        <span>{fmt(currentTime)}</span>
-        <span>{duration ? fmt(duration) : '--:--'}</span>
-      </div>
-      {/* Controls row */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={togglePlay}
-          className="cursor-target w-10 h-10 flex items-center justify-center border border-foreground/40 hover:border-primary-blue hover:bg-primary-blue/10 transition-colors cursor-pointer font-mono text-sm"
-        >
-          {playing ? '❚❚' : '▶'}
-        </button>
-        {/* Volume */}
-        <div className="flex items-center gap-2 flex-1">
-          <span className="text-[10px] font-mono opacity-40">VOL</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={volume}
-            onChange={changeVolume}
-            className="cursor-target flex-1 h-1 accent-primary-blue cursor-pointer appearance-none bg-foreground/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary-blue"
-          />
-        </div>
-      </div>
-      <p className="text-[10px] font-mono opacity-30 text-center">
-        ストリーミング再生中
-      </p>
-    </div>
-  )
-}
-
 /* ================================================================== */
 /* Main component                                                     */
 /* ================================================================== */
@@ -467,16 +348,24 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
 
       {/* Audio player / play button */}
       {streamUrl ? (
-        <AudioPlayer
-          streamUrl={streamUrl}
-          audioRef={audioRef}
-          onError={handleAudioError}
-          onTimeUpdate={() => {
-            if (audioRef.current) {
-              currentTimeRef.current = audioRef.current.currentTime
-            }
-          }}
-        />
+        <div className="space-y-3">
+          <audio
+            ref={audioRef}
+            src={streamUrl}
+            controls
+            autoPlay
+            onError={handleAudioError}
+            onTimeUpdate={() => {
+              if (audioRef.current) {
+                currentTimeRef.current = audioRef.current.currentTime
+              }
+            }}
+            className="w-full"
+          />
+          <p className="text-[10px] font-mono opacity-30 text-center">
+            ストリーミング再生中
+          </p>
+        </div>
       ) : (
         <Button
           variant="secondary"

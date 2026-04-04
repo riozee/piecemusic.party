@@ -87,7 +87,7 @@ export default function DownloadPage() {
             href={`/download/${album.id}`}
             className="block group no-underline"
           >
-            <Card className="h-full p-0! overflow-hidden">
+            <Card className="cursor-target h-full p-0! overflow-hidden">
               {/* Cover */}
               <div className="relative aspect-square w-full overflow-hidden bg-foreground/5">
                 <Image
