@@ -612,12 +612,13 @@ export default function TwitterSection() {
   useEffect(() => {
     fetch('/tweets.json')
       .then((r) => r.json())
-      .then((json: TweetsData | Tweet[]) => {
+      .then((json: unknown) => {
+        const parsed = json as TweetsData | Tweet[]
         // handle both shapes: { updatedAt, data } or plain array (legacy)
-        if (Array.isArray(json)) {
-          setData({ updatedAt: new Date().toISOString(), data: json })
+        if (Array.isArray(parsed)) {
+          setData({ updatedAt: new Date().toISOString(), data: parsed })
         } else {
-          setData(json)
+          setData(parsed)
         }
       })
       .catch(() => setError(true))

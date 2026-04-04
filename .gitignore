@@ -44,3 +44,5 @@ next-env.d.ts
 tweets.html
 x-scraper/tweets.json
 x-scraper/tweets.html
+
+manage-codes/passcodes.csv

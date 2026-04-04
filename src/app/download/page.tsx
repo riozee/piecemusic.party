@@ -1,9 +1,14 @@
 import type { Metadata } from 'next'
-import { works } from '#site/content'
 import Link from 'next/link'
+import Image from 'next/image'
 import Button from '@/components/Button'
-import DownloadList, { type DownloadGroup } from '@/components/DownloadList'
+import Card from '@/components/Card'
 import { absoluteUrl, siteConfig } from '@/lib/site-config'
+import type { AlbumInfo } from '@/components/portal/types'
+
+// ---------------------------------------------------------------------------
+// SEO Metadata
+// ---------------------------------------------------------------------------
 
 const title = 'ダウンロード'
 const description = 'Piece Music作品のアクセスカード対応ダウンロードページ。'
@@ -34,55 +39,27 @@ export const metadata: Metadata = {
   },
 }
 
-// Build title string from an array: ["A"] → "A", ["A","B"] → "A & B",
-// ["A","B","C"] → "A, B & C"
-function joinTitles(titles: string[]): string {
-  if (titles.length === 1) return titles[0]
-  if (titles.length === 2) return `${titles[0]} & ${titles[1]}`
-  return `${titles.slice(0, -1).join(', ')} & ${titles[titles.length - 1]}`
-}
+// ---------------------------------------------------------------------------
+// Hardcoded album catalogue
+// ---------------------------------------------------------------------------
 
-function getDownloadSlug(url: string): string {
-  try {
-    // Strip leading slashes from pathname to get a clean id
-    return new URL(url).pathname.replace(/^\/+/, '')
-  } catch {
-    // Fallback for malformed URLs
-    return url.split('/').pop() ?? url
-  }
-}
+const albums: AlbumInfo[] = [
+  {
+    id: 'chokaigi-collection',
+    title: 'ニコ超 2026年 コレクション',
+    description: '逆転 ほか、各種シングル楽曲をまとめたダウンロードパック。',
+    cover: '/images/gyakutenn.png',
+  },
+]
 
-function buildGroups(): DownloadGroup[] {
-  const worksWithDownload = works.filter((w) => w.download)
-
-  // Group works by their download URL
-  const groupMap = new Map<string, typeof worksWithDownload>()
-  for (const work of worksWithDownload) {
-    const dlUrl = work.download!
-    if (!groupMap.has(dlUrl)) groupMap.set(dlUrl, [])
-    groupMap.get(dlUrl)!.push(work)
-  }
-
-  return Array.from(groupMap.entries()).map(([dlUrl, ws]) => {
-    const covers = ws.map((w) => w.cover).filter(Boolean) as string[]
-    const dates = ws.map((w) => w.date).sort()
-    const latestDate = dates[dates.length - 1]
-
-    return {
-      id: getDownloadSlug(dlUrl),
-      downloadUrl: dlUrl,
-      title: joinTitles(ws.map((w) => w.title)),
-      covers,
-      latestDate,
-    }
-  })
-}
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function DownloadPage() {
-  const groups = buildGroups()
-
   return (
     <div className="container mx-auto max-w-5xl p-3 pt-12 mb-24">
+      {/* Back */}
       <div className="mb-8">
         <Link href="/">
           <Button variant="outline" className="text-sm">
@@ -91,6 +68,7 @@ export default function DownloadPage() {
         </Link>
       </div>
 
+      {/* Heading */}
       <div className="mb-8 border-b-4 border-primary-orange inline-block relative">
         <h1 className="text-4xl font-bold font-mono" data-text="ダウンロード">
           ダウンロード
@@ -98,10 +76,41 @@ export default function DownloadPage() {
       </div>
 
       <p className="font-mono text-sm opacity-60 mb-8">
-        アクセスカードをお持ちの方は、各アイテムをクリックすると利用方法をご確認いただけます。
+        アクセスカードをお持ちの方は、アルバムを選択してパスコードを入力してください。
       </p>
 
-      <DownloadList groups={groups} />
+      {/* Album grid */}
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {albums.map((album) => (
+          <Link
+            key={album.id}
+            href={`/download/${album.id}`}
+            className="block group no-underline"
+          >
+            <Card className="h-full p-0! overflow-hidden">
+              {/* Cover */}
+              <div className="relative aspect-square w-full overflow-hidden bg-foreground/5">
+                <Image
+                  src={album.cover}
+                  alt={album.title}
+                  fill
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                  className="object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+              </div>
+              {/* Info */}
+              <div className="p-5">
+                <h2 className="text-lg font-bold font-mono group-hover:text-primary-blue transition-colors">
+                  {album.title}
+                </h2>
+                <p className="text-xs opacity-60 mt-2 line-clamp-2">
+                  {album.description}
+                </p>
+              </div>
+            </Card>
+          </Link>
+        ))}
+      </div>
     </div>
   )
 }

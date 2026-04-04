@@ -22,7 +22,8 @@
       "@/*": ["./src/*"],
       "#site/content": ["./.velite"],
       "@/components/*": ["./src/components/*"]
-    }
+    },
+    "types": ["@cloudflare/workers-types"]
   },
   "include": [
     "next-env.d.ts",

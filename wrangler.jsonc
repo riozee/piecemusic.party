@@ -5,4 +5,17 @@
   "assets": {
     "directory": "./out",
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "piecemusic",
+      "database_id": "3d630d3a-2b7b-4623-89dd-2761f79bc164",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "piecemusic",
+    },
+  ],
 }
