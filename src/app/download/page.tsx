@@ -50,6 +50,12 @@ const albums: AlbumInfo[] = [
     description: '逆転 ほか、各種シングル楽曲をまとめたダウンロードパック。',
     cover: '/images/gyakutenn.png',
   },
+  {
+    id: 'piecemusic-collection',
+    title: 'ピースミュージックCollection',
+    description: 'ピースミュージックCollectionのダウンロードパック。',
+    cover: '/images/piecemusic-collection.png',
+  },
 ]
 
 // ---------------------------------------------------------------------------
