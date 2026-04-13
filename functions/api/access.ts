@@ -117,7 +117,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return json(
       {
         error:
-          'リクエストの形式が正しくありません。ページを再読み込みしてもう一度お試しください。',
+          'リクエストの処理に失敗しました。お手数ですが、ページを再読み込みして再度お試しください。',
       },
       400
     )
@@ -136,7 +136,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return json(
       {
         error:
-          '必要な情報が不足しています。ページを再読み込みしてもう一度お試しください。',
+          '必要な情報が不足しています。ページを再読み込みして再度お試しください。',
       },
       400
     )
@@ -148,7 +148,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return json(
       {
         error:
-          'セキュリティ検証に失敗しました。ページを再読み込みして再度お試しください。解決しない場合はパスコードカードに記載の連絡先までお問い合わせください。',
+          'セキュリティ確認に失敗しました。ページを再読み込みして再度お試しください。解決しない場合は、パスコードカード記載の連絡先までお問い合わせください。',
       },
       403
     )
@@ -163,7 +163,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return json(
       {
         error:
-          'パスコードが見つかりませんでした。入力内容をご確認のうえ、もう一度お試しください。',
+          'パスコードが見つかりません。入力内容をご確認のうえ、もう一度お試しください。',
       },
       404
     )
@@ -173,7 +173,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return json(
       {
         error:
-          'このパスコードは無効化されています。お心当たりがない場合は、パスコードカードに記載の連絡先までお問い合わせください。',
+          'このパスコードは現在ご利用いただけません。お心当たりがない場合は、パスコードカード記載の連絡先までお問い合わせください。',
       },
       403
     )
@@ -197,7 +197,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return json(
         {
           error:
-            'このパスコードの有効期限が切れています。新しいパスコードが必要な場合は、パスコードカードに記載の連絡先までお問い合わせください。',
+            'このパスコードの有効期限が切れています。新しいパスコードが必要な場合は、パスコードカード記載の連絡先までお問い合わせください。',
         },
         403
       )
@@ -232,7 +232,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return json(
         {
           error:
-            '利用端末数が上限を超えたため、このパスコードは自動的に無効化されました。お心当たりがない場合は、パスコードカードに記載の連絡先までお問い合わせください。',
+            '利用状況を確認した結果、このパスコードは現在ご利用いただけません。お心当たりがない場合は、パスコードカード記載の連絡先までお問い合わせください。',
         },
         403
       )
@@ -243,7 +243,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return json(
         {
           error:
-            '登録済み端末の上限に達しました。以前ご利用になった端末からアクセスするか、24時間後、もう一度お試しください。',
+            'このパスコードは現在、別の環境で利用中の可能性があります。しばらく時間をおいてから再度お試しください。',
         },
         429
       )
@@ -284,7 +284,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return json(
       {
         error:
-          '不正なファイルパスです。ページを再読み込みしてもう一度お試しください。',
+          '無効なファイル指定です。ページを再読み込みして再度お試しください。',
       },
       403
     )
@@ -304,7 +304,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   if (!object) {
     return json(
       {
-        error: 'ファイルが見つかりませんでした。',
+        error: '指定されたファイルが見つかりません。',
       },
       404
     )
@@ -343,14 +343,20 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     return json(
       {
         error:
-          'ストリーミングパラメータが不足しています。ページを再読み込みしてください。',
+          '再生に必要な情報が不足しています。ページを再読み込みしてください。',
       },
       400
     )
   }
 
   if (!isSafePath(file)) {
-    return json({ error: '不正なファイルパスです。' }, 403)
+    return json(
+      {
+        error:
+          '無効なファイル指定です。ページを再読み込みして再度お試しください。',
+      },
+      403
+    )
   }
 
   // Check expiration
@@ -359,7 +365,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   if (now > expNum) {
     return json(
       {
-        error: 'ストリーミングチケットの有効期限が切れました。',
+        error:
+          '再生用リンクの有効期限が切れています。ページを再読み込みしてください。',
       },
       403
     )
@@ -370,7 +377,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   if (sig !== expected) {
     return json(
       {
-        error: 'ストリーミング署名が無効です。ページを再読み込みしてください。',
+        error: '認証に失敗しました。ページを再読み込みして再度お試しください。',
       },
       403
     )
@@ -381,7 +388,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   if (!object) {
     return json(
       {
-        error: 'ファイルが見つかりませんでした。',
+        error: '指定されたファイルが見つかりません。',
       },
       404
     )
