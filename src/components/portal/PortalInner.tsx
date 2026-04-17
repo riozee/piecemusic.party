@@ -267,33 +267,12 @@ export default function PortalInner({ data }: PortalInnerProps) {
         </div>
       </div>
 
-      {/* Audio player / play button */}
+      {/* Audio controls / play button — the actual <audio> element is rendered
+           once at the component root to avoid duplicate playback. */}
       {streamUrl ? (
-        <div className="space-y-3">
-          <audio
-            ref={audioRef}
-            src={streamUrl}
-            controls
-            autoPlay
-            onError={handleAudioError}
-            onCanPlay={() => {
-              // Restore playback position after an error-triggered reload
-              if (audioRef.current && currentTimeRef.current > 0) {
-                audioRef.current.currentTime = currentTimeRef.current
-                audioRef.current.play().catch(() => {})
-              }
-            }}
-            onTimeUpdate={() => {
-              if (audioRef.current) {
-                currentTimeRef.current = audioRef.current.currentTime
-              }
-            }}
-            className="w-full"
-          />
-          <p className="text-[10px] font-mono opacity-30 text-center">
-            ストリーミング再生中
-          </p>
-        </div>
+        <p className="text-[10px] font-mono opacity-30 text-center py-2">
+          ストリーミング再生中
+        </p>
       ) : (
         <Button
           variant="secondary"
@@ -420,6 +399,32 @@ export default function PortalInner({ data }: PortalInnerProps) {
 
       {desktopLayout}
       {mobileLayout}
+
+      {/* Single <audio> element — rendered once here to prevent the desktop
+           and mobile layouts from each mounting their own instance and
+           playing simultaneously. */}
+      {streamUrl && (
+        <audio
+          ref={audioRef}
+          src={streamUrl}
+          controls
+          autoPlay
+          onError={handleAudioError}
+          onCanPlay={() => {
+            // Restore playback position after an error-triggered reload
+            if (audioRef.current && currentTimeRef.current > 0) {
+              audioRef.current.currentTime = currentTimeRef.current
+              audioRef.current.play().catch(() => {})
+            }
+          }}
+          onTimeUpdate={() => {
+            if (audioRef.current) {
+              currentTimeRef.current = audioRef.current.currentTime
+            }
+          }}
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[min(90vw,480px)] z-50 shadow-lg"
+        />
+      )}
     </div>
   )
 }
