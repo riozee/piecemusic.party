@@ -97,25 +97,37 @@ export default function PortalInner({ data }: PortalInnerProps) {
   const selected: Track | undefined =
     selectedIdx !== null ? tracks[selectedIdx] : undefined
 
+  // ---- Build R2 key from album ID + bare filename -------------------------
+  const r2Key = useCallback(
+    (track: Track) => `${album.id}/${track.filename}`,
+    [album.id]
+  )
+
   // ---- Download handler (signed-URL via <a download>, no blob) -----------
-  const handleDownload = useCallback((track: Track) => {
-    setError(null)
-    const url = `/api/access?file=${encodeURIComponent(track.filename)}&dl=1`
-    const a = document.createElement('a')
-    a.href = url
-    a.download = track.filename.split('/').pop() ?? 'download'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  }, [])
+  const handleDownload = useCallback(
+    (track: Track) => {
+      setError(null)
+      const url = `/api/access?file=${encodeURIComponent(r2Key(track))}&dl=1`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = track.filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    },
+    [r2Key]
+  )
 
   // ---- Play handler (direct URL, cookie-authenticated) ---------------------
-  const handlePlay = useCallback((track: Track) => {
-    setError(null)
-    retryCountRef.current = 0
-    currentTimeRef.current = 0
-    setStreamUrl(`/api/access?file=${encodeURIComponent(track.filename)}`)
-  }, [])
+  const handlePlay = useCallback(
+    (track: Track) => {
+      setError(null)
+      retryCountRef.current = 0
+      currentTimeRef.current = 0
+      setStreamUrl(`/api/access?file=${encodeURIComponent(r2Key(track))}`)
+    },
+    [r2Key]
+  )
 
   // ---- Audio error handler (bounded retries) --------------------------------
   const handleAudioError = useCallback(() => {
@@ -137,9 +149,9 @@ export default function PortalInner({ data }: PortalInnerProps) {
     currentTimeRef.current = audio.currentTime
 
     // Force reload with a cache-busting param
-    const url = `/api/access?file=${encodeURIComponent(track.filename)}&t=${Date.now()}`
+    const url = `/api/access?file=${encodeURIComponent(r2Key(track))}&t=${Date.now()}`
     setStreamUrl(url)
-  }, [selectedIdx, tracks])
+  }, [selectedIdx, tracks, r2Key])
 
   // ---- Select a track (for mobile navigation) ------------------------------
   const openTrack = useCallback((idx: number) => {

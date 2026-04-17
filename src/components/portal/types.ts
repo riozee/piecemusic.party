@@ -13,7 +13,8 @@ export interface AlbumInfo {
  */
 export interface Track {
   title: string
-  /** R2 object key, e.g. "album-id/filename.mp3" */
+  /** Bare filename within the album's R2 folder, e.g. "song.mp3".
+   *  The frontend prepends `album.id/` to form the full R2 key. */
   filename: string
   /** Optional duration string, e.g. "3:42" */
   duration?: string

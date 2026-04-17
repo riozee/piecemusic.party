@@ -50,7 +50,7 @@ const albumCatalogue: Record<string, AlbumData> = {
     tracks: [
       {
         title: '逆転',
-        filename: 'chokaigi-collection/discord-sfx-calling-250633.mp3',
+        filename: 'discord-sfx-calling-250633.mp3',
         duration: '3:35',
         cover: '/images/gyakutenn.png',
         description: 'ボカコレ2026冬ex参加曲。',
@@ -82,7 +82,7 @@ https://vocaloid-collection.jp/exhibition/`,
       },
       {
         title: '逆転 (Instrumental)',
-        filename: 'chokaigi-collection/discord-sfx-calling-250633.mp3',
+        filename: 'discord-sfx-calling-250633.mp3',
         duration: '3:35',
         cover: '/images/gyakutenn.png',
         description: '逆転のインストゥルメンタルバージョン。',
@@ -114,7 +114,7 @@ https://vocaloid-collection.jp/exhibition/`,
     tracks: [
       {
         title: '逆転',
-        filename: 'chokaigi-collection/discord-sfx-calling-250633.mp3',
+        filename: 'discord-sfx-calling-250633.mp3',
         duration: '3:35',
         cover: '/images/gyakutenn.png',
         description: 'ボカコレ2026冬ex参加曲。',
@@ -146,7 +146,7 @@ https://vocaloid-collection.jp/exhibition/`,
       },
       {
         title: '逆転 (Instrumental)',
-        filename: 'chokaigi-collection/discord-sfx-calling-250633.mp3',
+        filename: 'discord-sfx-calling-250633.mp3',
         duration: '3:35',
         cover: '/images/gyakutenn.png',
         description: '逆転のインストゥルメンタルバージョン。',
