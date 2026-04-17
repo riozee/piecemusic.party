@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, lazy, Suspense } from 'react'
+import { useState, useCallback, lazy, Suspense } from 'react'
 import Link from 'next/link'
 import Button from '@/components/Button'
 import PasscodeGate from './PasscodeGate'
@@ -75,7 +75,7 @@ export default function AlbumPortal({ data }: AlbumPortalProps) {
             </div>
           }
         >
-          <PortalInner data={data} code={unlockedCode} />
+          <PortalInner data={data} />
         </Suspense>
       )}
     </div>

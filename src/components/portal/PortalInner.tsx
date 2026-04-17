@@ -1,17 +1,18 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import { MDXContent } from '@/components/mdx-content'
-import { useTurnstile } from '@/lib/useTurnstile'
 import type { AlbumData, Track } from './types'
 
 interface PortalInnerProps {
   data: AlbumData
-  code: string
 }
+
+/** Max automatic retries for audio playback errors before giving up. */
+const MAX_AUDIO_RETRIES = 2
 
 /* ------------------------------------------------------------------ */
 /* Helper: resolve cover for a track (fallback to album cover)        */
@@ -83,170 +84,78 @@ function TrackCredits({
 /* ================================================================== */
 /* Main component                                                     */
 /* ================================================================== */
-export default function PortalInner({ data, code }: PortalInnerProps) {
+export default function PortalInner({ data }: PortalInnerProps) {
   const { album, tracks } = data
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
-  const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [streamUrl, setStreamUrl] = useState<string | null>(null)
 
-  const {
-    containerRef: turnstileContainerRef,
-    getToken,
-    reset: resetTurnstile,
-  } = useTurnstile({ size: 'invisible' })
   const audioRef = useRef<HTMLAudioElement>(null)
   const currentTimeRef = useRef(0)
+  const retryCountRef = useRef(0)
 
   const selected: Track | undefined =
     selectedIdx !== null ? tracks[selectedIdx] : undefined
 
-  // ---- Download handler ----------------------------------------------------
-  const handleDownload = useCallback(
-    async (track: Track) => {
-      setError(null)
-      setDownloading(true)
+  // ---- Download handler (signed-URL via <a download>, no blob) -----------
+  const handleDownload = useCallback((track: Track) => {
+    setError(null)
+    const url = `/api/access?file=${encodeURIComponent(track.filename)}&dl=1`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = track.filename.split('/').pop() ?? 'download'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }, [])
 
-      try {
-        const token = await getToken()
+  // ---- Play handler (direct URL, cookie-authenticated) ---------------------
+  const handlePlay = useCallback((track: Track) => {
+    setError(null)
+    retryCountRef.current = 0
+    currentTimeRef.current = 0
+    setStreamUrl(`/api/access?file=${encodeURIComponent(track.filename)}`)
+  }, [])
 
-        const res = await fetch('/api/access', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            code,
-            album_id: album.id,
-            filename: track.filename,
-            token,
-            action: 'download',
-          }),
-        })
-
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string
-          }
-          setError(body.error ?? `ダウンロードに失敗しました (${res.status})`)
-          return
-        }
-
-        // Trigger browser download from blob
-        const blob = await res.blob()
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = track.filename.split('/').pop() ?? 'download'
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        URL.revokeObjectURL(url)
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : 'ネットワークエラーが発生しました。'
-        )
-      } finally {
-        resetTurnstile()
-        setDownloading(false)
-      }
-    },
-    [code, album.id, getToken, resetTurnstile]
-  )
-
-  // ---- Stream request (for <audio> playback) --------------------------------
-  const requestStream = useCallback(
-    async (track: Track): Promise<string | null> => {
-      try {
-        const token = await getToken()
-        const res = await fetch('/api/access', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            code,
-            album_id: album.id,
-            filename: track.filename,
-            token,
-            action: 'stream',
-          }),
-        })
-
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string
-          }
-          setError(body.error ?? `ストリーミングに失敗しました (${res.status})`)
-          return null
-        }
-
-        const body = (await res.json()) as { streamUrl?: string }
-        return body.streamUrl ?? null
-      } catch {
-        setError('ネットワークエラーが発生しました。')
-        return null
-      } finally {
-        resetTurnstile()
-      }
-    },
-    [code, album.id, getToken, resetTurnstile]
-  )
-
-  // ---- Play handler ---------------------------------------------------------
-  const handlePlay = useCallback(
-    async (track: Track) => {
-      setError(null)
-      const url = await requestStream(track)
-      if (url) {
-        currentTimeRef.current = 0
-        setStreamUrl(url)
-      }
-    },
-    [requestStream]
-  )
-
-  // ---- Audio error handler (auto-refresh expired ticket) --------------------
+  // ---- Audio error handler (bounded retries) --------------------------------
   const handleAudioError = useCallback(() => {
     const audio = audioRef.current
-    if (!audio || !selected) return
+    if (!audio || selectedIdx === null) return
 
-    if (
-      audio.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED ||
-      audio.error?.code === MediaError.MEDIA_ERR_NETWORK
-    ) {
-      currentTimeRef.current = audio.currentTime
+    const track = tracks[selectedIdx]
+    if (!track) return
 
-      requestStream(selected).then((url) => {
-        if (url && audioRef.current) {
-          setStreamUrl(url)
-          audioRef.current.addEventListener(
-            'canplay',
-            () => {
-              if (audioRef.current) {
-                audioRef.current.currentTime = currentTimeRef.current
-                audioRef.current.play().catch(() => {})
-              }
-            },
-            { once: true }
-          )
-        }
-      })
+    if (retryCountRef.current >= MAX_AUDIO_RETRIES) {
+      setError(
+        '再生エラーが発生しました。ページを再読み込みして再度お試しください。'
+      )
+      setStreamUrl(null)
+      return
     }
-  }, [selected, requestStream])
 
-  // Reset stream when track changes
-  useEffect(() => {
-    setStreamUrl(null)
-    currentTimeRef.current = 0
-  }, [selectedIdx])
+    retryCountRef.current++
+    currentTimeRef.current = audio.currentTime
+
+    // Force reload with a cache-busting param
+    const url = `/api/access?file=${encodeURIComponent(track.filename)}&t=${Date.now()}`
+    setStreamUrl(url)
+  }, [selectedIdx, tracks])
 
   // ---- Select a track (for mobile navigation) ------------------------------
   const openTrack = useCallback((idx: number) => {
     setSelectedIdx(idx)
     setError(null)
+    setStreamUrl(null)
+    currentTimeRef.current = 0
+    retryCountRef.current = 0
   }, [])
 
   const goBack = useCallback(() => {
     setSelectedIdx(null)
     setStreamUrl(null)
     setError(null)
+    currentTimeRef.current = 0
+    retryCountRef.current = 0
   }, [])
 
   // ========================================================================
@@ -355,6 +264,13 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
             controls
             autoPlay
             onError={handleAudioError}
+            onCanPlay={() => {
+              // Restore playback position after an error-triggered reload
+              if (audioRef.current && currentTimeRef.current > 0) {
+                audioRef.current.currentTime = currentTimeRef.current
+                audioRef.current.play().catch(() => {})
+              }
+            }}
             onTimeUpdate={() => {
               if (audioRef.current) {
                 currentTimeRef.current = audioRef.current.currentTime
@@ -396,10 +312,9 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
         variant="primary"
         size="lg"
         className="w-full"
-        disabled={downloading}
         onClick={() => handleDownload(selected)}
       >
-        {downloading ? 'ダウンロード中…' : 'ダウンロード'}
+        ダウンロード
       </Button>
 
       {/* MDX body */}
@@ -493,13 +408,6 @@ export default function PortalInner({ data, code }: PortalInnerProps) {
 
       {desktopLayout}
       {mobileLayout}
-
-      {/* Hidden Turnstile container */}
-      <div
-        ref={turnstileContainerRef}
-        className="fixed bottom-0 left-0 opacity-0 pointer-events-none"
-        aria-hidden="true"
-      />
     </div>
   )
 }

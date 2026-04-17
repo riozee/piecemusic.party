@@ -103,6 +103,70 @@ https://vocaloid-collection.jp/exhibition/`,
       },
     ],
   },
+
+  'piecemusic-collection': {
+    album: {
+      id: 'piecemusic-collection',
+      title: 'Piece Music コレクション',
+      description: '逆転 ほか、各種シングル楽曲をまとめたダウンロードパック。',
+      cover: '/images/gyakutenn.png',
+    },
+    tracks: [
+      {
+        title: '逆転',
+        filename: 'chokaigi-collection/discord-sfx-calling-250633.mp3',
+        duration: '3:35',
+        cover: '/images/gyakutenn.png',
+        description: 'ボカコレ2026冬ex参加曲。',
+        date: '2026-02-19',
+        author: 'Piece Music',
+        vocal: '知声 (Chis-A)',
+        lyric: 'yu_IT',
+        music: 'Nina December',
+        illust: 'どらごん',
+        movie: 'どらごん',
+        tags: ['ボカコレ'],
+        links: [
+          {
+            label: 'Niconico',
+            url: 'https://www.nicovideo.jp/watch/sm45965390',
+          },
+        ],
+        body: `## About
+
+- Produced by ピースミュージック
+- Music : [Nina December](https://x.com/december_nina)
+- Illustration & MV: [どらごん](https://x.com/rutzchy)
+
+ボカコレ2026冬ex参加曲です。
+『The VOCALOID Collection （ボカコレ）』はボカロ文化をきっかけに生まれたインターネット等で活動するクリエイターやユーザー、企業などボカロに関わる全ての方が参加できるボカロ文化の祭典です。
+
+▼ボカコレ2026冬ex
+https://vocaloid-collection.jp/exhibition/`,
+      },
+      {
+        title: '逆転 (Instrumental)',
+        filename: 'chokaigi-collection/discord-sfx-calling-250633.mp3',
+        duration: '3:35',
+        cover: '/images/gyakutenn.png',
+        description: '逆転のインストゥルメンタルバージョン。',
+        date: '2026-02-19',
+        author: 'Piece Music',
+        music: 'Nina December',
+        body: `## About
+
+- Produced by ピースミュージック
+- Music : [Nina December](https://x.com/december_nina)
+- Illustration & MV: [どらごん](https://x.com/rutzchy)
+
+ボカコレ2026冬ex参加曲です。
+『The VOCALOID Collection （ボカコレ）』はボカロ文化をきっかけに生まれたインターネット等で活動するクリエイターやユーザー、企業などボカロに関わる全ての方が参加できるボカロ文化の祭典です。
+
+▼ボカコレ2026冬ex
+https://vocaloid-collection.jp/exhibition/`,
+      },
+    ],
+  },
 }
 
 // ---------------------------------------------------------------------------

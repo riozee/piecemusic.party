@@ -3,11 +3,13 @@
  *
  * Handles passcode verification and R2 file delivery for the download portal.
  *
- * Body (JSON):
- *   code       – passcode string
- *   album_id   – album identifier
- *   filename?  – R2 object key (omit for verify-only mode)
- *   token      – Cloudflare Turnstile token
+ * POST  — Verify passcode + Turnstile → issue HMAC-signed session cookie
+ *   Body (JSON): { code, album_id, token }
+ *
+ * GET   — Serve R2 file authenticated by session cookie
+ *   Query: file (R2 key), dl=1 (Content-Disposition: attachment)
+ *   Supports Range requests (206 Partial Content) for iOS/Safari streaming
+ *   and download resume.
  */
 
 interface Env {
@@ -20,9 +22,7 @@ interface Env {
 interface RequestBody {
   code?: string
   album_id?: string
-  filename?: string
   token?: string
-  action?: 'verify' | 'download' | 'stream'
 }
 
 interface PasscodeRow {
@@ -31,13 +31,6 @@ interface PasscodeRow {
   issued_at: number
   valid_duration: number
   is_suspended: number
-}
-
-interface IpRow {
-  code: string
-  ip: string
-  first_seen: number
-  last_seen: number
 }
 
 interface TurnstileResponse {
@@ -49,36 +42,21 @@ interface TurnstileResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function json(body: Record<string, unknown>, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-async function signString(text: string, secret: string): Promise<string> {
-  const enc = new TextEncoder()
-  const key = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(text))
-  return [...new Uint8Array(sig)]
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+function json(
+  body: Record<string, unknown>,
+  status = 200,
+  extra?: HeadersInit
+): Response {
+  const headers = new Headers(extra)
+  headers.set('Content-Type', 'application/json')
+  return new Response(JSON.stringify(body), { status, headers })
 }
 
 function isSafePath(path: string): boolean {
-  if (path.includes('..')) {
-    return false
-  }
-
+  if (path.includes('..')) return false
   try {
     const decoded = decodeURIComponent(path)
-    return !decoded.split('/').some((segment) => segment === '..')
+    return !decoded.split('/').some((seg) => seg === '..')
   } catch {
     return false
   }
@@ -103,7 +81,157 @@ async function verifyTurnstile(
 }
 
 // ---------------------------------------------------------------------------
-// Handler
+// Session cookie helpers (HMAC-signed, HttpOnly)
+// ---------------------------------------------------------------------------
+
+const COOKIE_NAME = 'portal_session'
+/** Default session lifetime — 24 hours (capped to passcode validity). */
+const SESSION_MAX_AGE = 86400
+
+interface SessionPayload {
+  /** album_id */
+  a: string
+  /** passcode */
+  c: string
+  /** expiry (unix seconds) */
+  e: number
+}
+
+function base64url(buf: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
+function base64urlDecode(str: string): string {
+  const padded =
+    str.replace(/-/g, '+').replace(/_/g, '/') +
+    '=='.slice(0, (4 - (str.length % 4)) % 4)
+  return atob(padded)
+}
+
+async function hmacSign(data: string, secret: string): Promise<string> {
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data))
+  return [...new Uint8Array(sig)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+async function createSessionCookie(
+  albumId: string,
+  code: string,
+  maxAge: number,
+  secret: string
+): Promise<string> {
+  const payload: SessionPayload = {
+    a: albumId,
+    c: code,
+    e: Math.floor(Date.now() / 1000) + maxAge,
+  }
+  const enc = new TextEncoder()
+  const encoded = enc.encode(JSON.stringify(payload))
+  const payloadB64 = base64url(encoded.buffer as ArrayBuffer)
+  const sig = await hmacSign(payloadB64, secret)
+  const value = `${payloadB64}.${sig}`
+
+  return [
+    `${COOKIE_NAME}=${value}`,
+    'Path=/api/access',
+    'HttpOnly',
+    'Secure',
+    'SameSite=Lax',
+    `Max-Age=${maxAge}`,
+  ].join('; ')
+}
+
+async function verifySessionCookie(
+  cookieHeader: string | null,
+  secret: string
+): Promise<SessionPayload | null> {
+  if (!cookieHeader) return null
+
+  // Parse cookie header to find our cookie
+  const cookies = cookieHeader.split(';').map((c) => c.trim())
+  const target = cookies.find((c) => c.startsWith(`${COOKIE_NAME}=`))
+  if (!target) return null
+
+  const value = target.slice(COOKIE_NAME.length + 1)
+  const dotIdx = value.lastIndexOf('.')
+  if (dotIdx < 0) return null
+
+  const payloadB64 = value.slice(0, dotIdx)
+  const sig = value.slice(dotIdx + 1)
+
+  // Verify HMAC
+  const expected = await hmacSign(payloadB64, secret)
+  if (sig !== expected) return null
+
+  // Decode payload
+  try {
+    const payloadJson = base64urlDecode(payloadB64)
+    const payload = JSON.parse(payloadJson) as SessionPayload
+
+    // Check expiry
+    const now = Math.floor(Date.now() / 1000)
+    if (now > payload.e) return null
+
+    return payload
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Range request helpers
+// ---------------------------------------------------------------------------
+
+interface ParsedRange {
+  offset: number
+  length: number
+}
+
+function parseRangeHeader(
+  header: string,
+  totalSize: number
+): ParsedRange | null {
+  const match = header.match(/bytes=(\d*)-(\d*)/)
+  if (!match) return null
+
+  const [, startStr, endStr] = match
+
+  if (startStr === '' && endStr === '') return null
+
+  let offset: number
+  let end: number
+
+  if (startStr === '') {
+    // Suffix range: bytes=-500
+    const suffix = parseInt(endStr, 10)
+    offset = Math.max(0, totalSize - suffix)
+    end = totalSize - 1
+  } else {
+    offset = parseInt(startStr, 10)
+    if (offset >= totalSize) return null
+    end =
+      endStr !== ''
+        ? Math.min(parseInt(endStr, 10), totalSize - 1)
+        : totalSize - 1
+  }
+
+  return { offset, length: end - offset + 1 }
+}
+
+// ---------------------------------------------------------------------------
+// POST handler — passcode verification + session cookie issuance
 // ---------------------------------------------------------------------------
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
@@ -123,13 +251,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     )
   }
 
-  const {
-    code,
-    album_id,
-    filename,
-    token,
-    action = filename ? 'download' : 'verify',
-  } = body
+  const { code, album_id, token } = body
   const ip = request.headers.get('CF-Connecting-IP') ?? '0.0.0.0'
 
   if (!code || !album_id || !token) {
@@ -159,13 +281,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     .bind(code)
     .first<PasscodeRow>()
 
-  if (!row) {
+  // Merge "not found" and "wrong album" into one generic message to prevent
+  // attackers from discovering whether a code exists or which album it targets.
+  if (!row || row.album_id !== album_id) {
     return json(
       {
         error:
-          'パスコードが見つかりません。入力内容をご確認のうえ、もう一度お試しください。',
+          'パスコードが正しくありません。入力内容をご確認のうえ、もう一度お試しください。',
       },
-      404
+      403
     )
   }
 
@@ -179,25 +303,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     )
   }
 
-  // Check album match
-  if (row.album_id !== album_id) {
-    return json(
-      {
-        error:
-          'このパスコードは別のアルバム用です。正しいダウンロードページをご確認ください。',
-      },
-      403
-    )
-  }
-
   // Check expiry (valid_duration 0 = never expires)
+  const now = Math.floor(Date.now() / 1000)
   if (row.valid_duration > 0) {
-    const now = Math.floor(Date.now() / 1000)
     if (now > row.issued_at + row.valid_duration) {
       return json(
         {
           error:
-            'このパスコードの有効期限が切れています。新しいパスコードが必要な場合は、パスコードカード記載の連絡先までお問い合わせください。',
+            'このパスコードはご利用いただけません。有効期限が切れている可能性があります。新しいパスコードが必要な場合は、パスコードカード記載の連絡先までお問い合わせください。',
         },
         403
       )
@@ -205,11 +318,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 
   // ---- IP Tracking (Two-Tier Limit) ----------------------------------------
+  // Read-only check — is this IP already known for this code?
   const existingIp = await env.DB.prepare(
-    'SELECT * FROM ip_tracking WHERE code = ? AND ip = ?'
+    'SELECT 1 FROM ip_tracking WHERE code = ? AND ip = ?'
   )
     .bind(code, ip)
-    .first<IpRow>()
+    .first()
 
   if (!existingIp) {
     // Count distinct IPs for this code
@@ -239,7 +353,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     // Tier 2: Soft cap — reject but do not suspend
-    if (distinctIps >= 3) {
+    if (distinctIps >= 5) {
       return json(
         {
           error:
@@ -250,85 +364,47 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
   }
 
-  // Async IP upsert + rolling window cleanup (non-blocking)
-  const now = Math.floor(Date.now() / 1000)
+  // Atomic UPSERT for IP tracking — avoids race-condition unique constraint
+  // violations when concurrent requests arrive from the same new IP.
   context.waitUntil(
     (async () => {
-      if (existingIp) {
-        await env.DB.prepare(
-          'UPDATE ip_tracking SET last_seen = ? WHERE code = ? AND ip = ?'
-        )
-          .bind(now, code, ip)
-          .run()
-      } else {
-        await env.DB.prepare(
-          'INSERT INTO ip_tracking (code, ip, first_seen, last_seen) VALUES (?, ?, ?, ?)'
-        )
-          .bind(code, ip, now, now)
-          .run()
-      }
-      // Prune IPs older than 24 hours
+      await env.DB.prepare(
+        `INSERT INTO ip_tracking (code, ip, first_seen, last_seen)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(code, ip) DO UPDATE SET last_seen = excluded.last_seen`
+      )
+        .bind(code, ip, now, now)
+        .run()
+
+      // Prune IPs older than 6 hours (rolling window)
       await env.DB.prepare('DELETE FROM ip_tracking WHERE last_seen < ?')
-        .bind(now - 86400)
+        .bind(now - 21600)
         .run()
     })()
   )
 
-  // ---- Action: verify ------------------------------------------------------
-  if (action === 'verify' || !filename) {
-    return json({ message: 'アクセスが承認されました' }, 200)
+  // ---- Issue session cookie ------------------------------------------------
+  // Cap session lifetime to passcode validity (if set) or 24 h.
+  let sessionAge = SESSION_MAX_AGE
+  if (row.valid_duration > 0) {
+    const remaining = row.issued_at + row.valid_duration - now
+    sessionAge = Math.min(SESSION_MAX_AGE, Math.max(remaining, 0))
   }
 
-  // Security: filename must be scoped under the album and must not allow traversal
-  if (!filename.startsWith(`${album_id}/`) || !isSafePath(filename)) {
-    return json(
-      {
-        error:
-          '無効なファイル指定です。ページを再読み込みして再度お試しください。',
-      },
-      403
-    )
-  }
-
-  // ---- Action: stream (generate signed ticket URL) -------------------------
-  if (action === 'stream') {
-    const exp = now + 300 // 5-minute ticket
-    const sig = await signString(`${filename}:${exp}`, env.STREAM_SECRET)
-    return json({
-      streamUrl: `/api/access?file=${encodeURIComponent(filename)}&exp=${exp}&sig=${sig}`,
-    })
-  }
-
-  // ---- Action: download (binary file delivery) -----------------------------
-  const object = await env.R2_BUCKET.get(filename)
-  if (!object) {
-    return json(
-      {
-        error: '指定されたファイルが見つかりません。',
-      },
-      404
-    )
-  }
-
-  const headers = new Headers()
-  headers.set(
-    'Content-Disposition',
-    `attachment; filename="${encodeURIComponent(filename.split('/').pop() ?? 'download')}"`
+  const cookie = await createSessionCookie(
+    album_id,
+    code,
+    sessionAge,
+    env.STREAM_SECRET
   )
-  if (object.httpMetadata?.contentType) {
-    headers.set('Content-Type', object.httpMetadata.contentType)
-  } else {
-    headers.set('Content-Type', 'application/octet-stream')
-  }
-  if (object.size !== undefined) {
-    headers.set('Content-Length', String(object.size))
-  }
 
-  return new Response(object.body as ReadableStream, { status: 200, headers })
+  return json({ message: 'アクセスが承認されました' }, 200, {
+    'Set-Cookie': cookie,
+  })
 }
 
 // ---------------------------------------------------------------------------
-// GET handler — stateless streaming ticket verification
+// GET handler — cookie-authenticated file delivery with Range support
 // ---------------------------------------------------------------------------
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
@@ -336,14 +412,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const url = new URL(request.url)
 
   const file = url.searchParams.get('file')
-  const exp = url.searchParams.get('exp')
-  const sig = url.searchParams.get('sig')
+  const dl = url.searchParams.get('dl') === '1'
 
-  if (!file || !exp || !sig) {
+  if (!file) {
     return json(
       {
-        error:
-          '再生に必要な情報が不足しています。ページを再読み込みしてください。',
+        error: '必要な情報が不足しています。ページを再読み込みしてください。',
       },
       400
     )
@@ -359,53 +433,98 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     )
   }
 
-  // Check expiration
-  const expNum = Number(exp)
-  const now = Math.floor(Date.now() / 1000)
-  if (now > expNum) {
+  // ---- Verify session cookie -----------------------------------------------
+  const session = await verifySessionCookie(
+    request.headers.get('Cookie'),
+    env.STREAM_SECRET
+  )
+
+  if (!session) {
     return json(
       {
         error:
-          '再生用リンクの有効期限が切れています。ページを再読み込みしてください。',
+          'セッションが無効です。ページを再読み込みして再度パスコードを入力してください。',
       },
-      403
+      401
     )
   }
 
-  // Verify signature
-  const expected = await signString(`${file}:${exp}`, env.STREAM_SECRET)
-  if (sig !== expected) {
-    return json(
-      {
-        error: '認証に失敗しました。ページを再読み込みして再度お試しください。',
-      },
-      403
-    )
+  // File must be scoped under the authenticated album
+  if (!file.startsWith(`${session.a}/`)) {
+    return json({ error: 'アクセス権がありません。' }, 403)
   }
 
-  // Fetch from R2
-  const object = await env.R2_BUCKET.get(file)
-  if (!object) {
-    return json(
-      {
-        error: '指定されたファイルが見つかりません。',
-      },
-      404
-    )
-  }
-
+  // ---- Build common response headers ---------------------------------------
+  const rangeHeader = request.headers.get('Range')
   const headers = new Headers()
-  headers.set('Content-Type', 'audio/mpeg')
   headers.set('Accept-Ranges', 'bytes')
+  headers.set('Cache-Control', 'private, max-age=300')
+
+  const basename = file.split('/').pop() ?? 'download'
   headers.set(
     'Content-Disposition',
-    `inline; filename="${encodeURIComponent(file.split('/').pop() ?? 'audio')}"`
+    dl
+      ? `attachment; filename="${encodeURIComponent(basename)}"`
+      : `inline; filename="${encodeURIComponent(basename)}"`
+  )
+
+  // ---- Range request (206 Partial Content) ---------------------------------
+  if (rangeHeader) {
+    // HEAD to get full object size for Content-Range calculation
+    const headObj = await env.R2_BUCKET.head(file)
+    if (!headObj) {
+      return json({ error: '指定されたファイルが見つかりません。' }, 404)
+    }
+
+    const totalSize = headObj.size
+    const range = parseRangeHeader(rangeHeader, totalSize)
+
+    if (!range) {
+      return new Response(null, {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${totalSize}` },
+      })
+    }
+
+    const object = await env.R2_BUCKET.get(file, {
+      range: { offset: range.offset, length: range.length },
+    })
+    if (!object) {
+      return json({ error: '指定されたファイルが見つかりません。' }, 404)
+    }
+
+    // Content-Type from R2 metadata — not hardcoded
+    headers.set(
+      'Content-Type',
+      headObj.httpMetadata?.contentType ?? 'application/octet-stream'
+    )
+    const endByte = range.offset + range.length - 1
+    headers.set(
+      'Content-Range',
+      `bytes ${range.offset}-${endByte}/${totalSize}`
+    )
+    headers.set('Content-Length', String(range.length))
+
+    return new Response(object.body as ReadableStream, {
+      status: 206,
+      headers,
+    })
+  }
+
+  // ---- Full response (no Range) --------------------------------------------
+  const object = await env.R2_BUCKET.get(file)
+  if (!object) {
+    return json({ error: '指定されたファイルが見つかりません。' }, 404)
+  }
+
+  // Content-Type from R2 metadata — not hardcoded
+  headers.set(
+    'Content-Type',
+    object.httpMetadata?.contentType ?? 'application/octet-stream'
   )
   if (object.size !== undefined) {
     headers.set('Content-Length', String(object.size))
   }
-  // Allow browser caching for the ticket duration
-  headers.set('Cache-Control', 'private, max-age=300')
 
   return new Response(object.body as ReadableStream, { status: 200, headers })
 }
