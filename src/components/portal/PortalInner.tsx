@@ -411,8 +411,10 @@ export default function PortalInner({ data }: PortalInnerProps) {
           autoPlay
           onError={handleAudioError}
           onCanPlay={() => {
-            // Restore playback position after an error-triggered reload
-            if (audioRef.current && currentTimeRef.current > 0) {
+            // Only restore position after an error-triggered reload (retryCountRef > 0).
+            // canplay also fires on every normal seek/buffer, so guarding with
+            // retryCountRef prevents seeking from being cancelled in a loop.
+            if (audioRef.current && retryCountRef.current > 0 && currentTimeRef.current > 0) {
               audioRef.current.currentTime = currentTimeRef.current
               audioRef.current.play().catch(() => {})
             }
