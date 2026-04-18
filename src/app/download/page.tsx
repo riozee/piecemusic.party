@@ -4,7 +4,7 @@ import Image from 'next/image'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import { absoluteUrl, siteConfig } from '@/lib/site-config'
-import type { AlbumInfo } from '@/components/portal/types'
+import { albumIndex } from './_data/albums'
 
 // ---------------------------------------------------------------------------
 // SEO Metadata
@@ -40,25 +40,6 @@ export const metadata: Metadata = {
 }
 
 // ---------------------------------------------------------------------------
-// Hardcoded album catalogue
-// ---------------------------------------------------------------------------
-
-const albums: AlbumInfo[] = [
-  {
-    id: 'chokaigi-collection',
-    title: 'ニコ超 2026年 コレクション',
-    description: '逆転 ほか、各種シングル楽曲をまとめたダウンロードパック。',
-    cover: '/images/gyakutenn.png',
-  },
-  {
-    id: 'piecemusic-collection',
-    title: 'ピースミュージックCollection',
-    description: 'ピースミュージックCollectionのダウンロードパック。',
-    cover: '/images/piecemusic-collection.png',
-  },
-]
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -87,7 +68,7 @@ export default function DownloadPage() {
 
       {/* Album grid */}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {albums.map((album) => (
+        {albumIndex.map((album) => (
           <Link
             key={album.id}
             href={`/download/${album.id}`}

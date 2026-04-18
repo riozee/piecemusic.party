@@ -1,3 +1,5 @@
 export { default as AlbumPortal } from './AlbumPortal'
+export { default as TrackList } from './TrackList'
+export { default as TrackCredits } from './TrackCredits'
 export type { AlbumInfo, Track, AlbumData } from './types'
 export { PORTAL_LS_KEY } from './types'

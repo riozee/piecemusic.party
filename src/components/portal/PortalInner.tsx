@@ -1,102 +1,35 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import Image from 'next/image'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import { MDXContent } from '@/components/mdx-content'
 import { useToast } from './ToastProvider'
+import TrackList from './TrackList'
+import TrackCredits from './TrackCredits'
+import { useAudioPlayer } from './useAudioPlayer'
+import { CLIENT_MSG } from './messages'
 import type { AlbumData, Track } from './types'
 
 interface PortalInnerProps {
   data: AlbumData
 }
 
-/** Max automatic retries for audio playback errors before giving up. */
-const MAX_AUDIO_RETRIES = 2
-
-/* ------------------------------------------------------------------ */
-/* Helper: resolve cover for a track (fallback to album cover)        */
-/* ------------------------------------------------------------------ */
+/** Resolve cover for a track (fallback to album cover). */
 function trackCover(track: Track, fallback: string): string {
   return track.cover ?? fallback
-}
-
-/* ------------------------------------------------------------------ */
-/* Sub-component: Credits sidebar (mirrors works/[slug] metadata)     */
-/* ------------------------------------------------------------------ */
-function TrackCredits({
-  track,
-  albumTitle,
-}: {
-  track: Track
-  albumTitle: string
-}) {
-  const rows: [string, string | undefined][] = [
-    ['リリース日', track.date],
-    ['アーティスト', track.author],
-    ['ボーカル', track.vocal],
-    ['音楽', track.music],
-    ['作詞', track.lyric],
-    ['編曲', track.arrangement],
-    ['イラスト', track.illust],
-    ['動画', track.movie],
-  ]
-
-  return (
-    <div className="font-mono text-sm space-y-3 border-l-2 border-foreground/50 pl-4 py-2">
-      <div className="flex justify-between border-b border-foreground/20 pb-1">
-        <span className="opacity-50">収録</span>
-        <span>{albumTitle}</span>
-      </div>
-      {rows.map(
-        ([label, value]) =>
-          value && (
-            <div
-              key={label}
-              className="flex justify-between border-b border-foreground/20 pb-1"
-            >
-              <span className="opacity-50">{label}</span>
-              <span className="text-right">{value}</span>
-            </div>
-          )
-      )}
-      {/* Tags */}
-      {track.tags && track.tags.length > 0 && (
-        <div className="flex justify-between border-b border-foreground/20 pb-1">
-          <span className="opacity-50">タグ</span>
-          <span>{track.tags.map((t) => '#' + t).join(' ')}</span>
-        </div>
-      )}
-      {/* External links */}
-      {track.links && track.links.length > 0 && (
-        <div className="flex flex-col gap-2 mt-4">
-          {track.links.map((link) => (
-            <Button key={link.url} href={link.url} variant="outline" size="sm">
-              {link.label} &gt;
-            </Button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 /* ================================================================== */
 /* Main component                                                     */
 /* ================================================================== */
+
 export default function PortalInner({ data }: PortalInnerProps) {
   const { album, tracks } = data
   const toast = useToast()
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
-  const [streamUrl, setStreamUrl] = useState<string | null>(null)
-  const [isBuffering, setIsBuffering] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
-
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const currentTimeRef = useRef(0)
-  const retryCountRef = useRef(0)
-  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const selected: Track | undefined =
     selectedIdx !== null ? tracks[selectedIdx] : undefined
@@ -107,14 +40,14 @@ export default function PortalInner({ data }: PortalInnerProps) {
     [album.id]
   )
 
+  // ---- Audio player (extracted hook) --------------------------------------
+  const audio = useAudioPlayer({ r2Key, toast })
+
   // ---- Download handler (fetch + blob for proper error handling) ----------
   const handleDownload = useCallback(
     async (track: Track) => {
       if (!navigator.onLine) {
-        toast.show(
-          'インターネットに接続されていません。接続を確認してから再度お試しください。',
-          'warning'
-        )
+        toast.show(CLIENT_MSG.OFFLINE, 'warning')
         return
       }
       setIsDownloading(true)
@@ -124,24 +57,14 @@ export default function PortalInner({ data }: PortalInnerProps) {
         const res = await fetch(url)
         if (!res.ok) {
           if (res.status === 401) {
-            toast.show(
-              'セッションの有効期限が切れました。ページを再読み込みして再度パスコードを入力してください。',
-              'error'
-            )
+            toast.show(CLIENT_MSG.SESSION_EXPIRED, 'error')
           } else if (
             res.headers.get('Content-Type')?.includes('application/json')
           ) {
             const data = (await res.json()) as { error?: string }
-            toast.show(
-              data.error ??
-                'ダウンロードを開始できませんでした。しばらく経ってからもう一度お試しください。',
-              'error'
-            )
+            toast.show(data.error ?? CLIENT_MSG.DOWNLOAD_FAIL, 'error')
           } else {
-            toast.show(
-              'ダウンロードを開始できませんでした。しばらく経ってからもう一度お試しください。',
-              'error'
-            )
+            toast.show(CLIENT_MSG.DOWNLOAD_FAIL, 'error')
           }
           return
         }
@@ -151,10 +74,7 @@ export default function PortalInner({ data }: PortalInnerProps) {
         try {
           blobUrl = URL.createObjectURL(blob)
         } catch {
-          toast.show(
-            'ファイルの準備中にメモリ不足が発生しました。ほかのタブを閉じてから再度お試しください。',
-            'error'
-          )
+          toast.show(CLIENT_MSG.DOWNLOAD_OOM, 'error')
           return
         }
         const a = document.createElement('a')
@@ -163,13 +83,9 @@ export default function PortalInner({ data }: PortalInnerProps) {
         document.body.appendChild(a)
         a.click()
         a.remove()
-        // Revoke after a delay to let the download start
         setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
       } catch {
-        toast.show(
-          'ダウンロード中に通信が切断されました。通信環境をご確認の上、もう一度お試しください。',
-          'error'
-        )
+        toast.show(CLIENT_MSG.DOWNLOAD_NETWORK, 'error')
       } finally {
         setIsDownloading(false)
       }
@@ -177,190 +93,24 @@ export default function PortalInner({ data }: PortalInnerProps) {
     [r2Key, toast]
   )
 
-  // ---- Play handler (direct URL, cookie-authenticated) ---------------------
-  const handlePlay = useCallback(
-    (track: Track) => {
-      retryCountRef.current = 0
-      currentTimeRef.current = 0
-      setStreamUrl(`/api/access?file=${encodeURIComponent(r2Key(track))}`)
+  // ---- Track selection (shared by desktop & mobile) ------------------------
+  const openTrack = useCallback(
+    (idx: number) => {
+      setSelectedIdx(idx)
+      audio.stop()
     },
-    [r2Key]
+    [audio]
   )
-
-  // ---- Audio error handler (bounded retries with session check) -----------
-  const handleAudioError = useCallback(async () => {
-    const audio = audioRef.current
-    if (!audio || selectedIdx === null) return
-
-    const track = tracks[selectedIdx]
-    if (!track) return
-
-    // Check if the error is due to a server-side issue (expired session,
-    // missing file, etc.) BEFORE inspecting the MediaError code.
-    // A non-audio response (e.g. 404 HTML or JSON error) causes the browser
-    // to report MEDIA_ERR_SRC_NOT_SUPPORTED, which would be misleading if
-    // we checked it first.
-    try {
-      const checkUrl = `/api/access?file=${encodeURIComponent(r2Key(track))}`
-      const res = await fetch(checkUrl, { method: 'HEAD' })
-      if (res.status === 401 || res.status === 403) {
-        toast.show(
-          'セッションの有効期限が切れました。ページを再読み込みして再度パスコードを入力してください。',
-          'error',
-          { persistent: true }
-        )
-        setStreamUrl(null)
-        return
-      }
-      if (res.status === 404) {
-        toast.show(
-          '音声ファイルが見つかりません。ページを再読み込みしてお試しください。問題が続く場合はお問い合わせください。',
-          'error'
-        )
-        setStreamUrl(null)
-        return
-      }
-    } catch {
-      // Network error — fall through to generic retry logic
-    }
-
-    // Only check format support AFTER confirming the server is reachable
-    // and returning a valid audio response.
-    const mediaErr = audio.error
-    if (mediaErr?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
-      toast.show(
-        'このブラウザではこの音声形式を再生できません。別のブラウザ（Chrome / Safari）をお試しください。',
-        'error'
-      )
-      setStreamUrl(null)
-      return
-    }
-
-    if (retryCountRef.current >= MAX_AUDIO_RETRIES) {
-      toast.show(
-        '再生を続行できませんでした。通信環境をご確認の上、ページを再読み込みしてお試しください。',
-        'error'
-      )
-      setStreamUrl(null)
-      return
-    }
-
-    retryCountRef.current++
-    currentTimeRef.current = audio.currentTime
-    toast.show('再生が中断されました。再接続しています…', 'warning')
-
-    // Force reload with a cache-busting param
-    const url = `/api/access?file=${encodeURIComponent(r2Key(track))}&t=${Date.now()}`
-    setStreamUrl(url)
-  }, [selectedIdx, tracks, r2Key, toast])
-
-  // ---- Audio stall handler (detects prolonged buffering) ------------------
-  const handleStalled = useCallback(() => {
-    if (stallTimerRef.current) return
-    stallTimerRef.current = setTimeout(() => {
-      stallTimerRef.current = null
-      toast.show(
-        '読み込みに時間がかかっています。通信環境をご確認ください。',
-        'warning'
-      )
-    }, 8000)
-  }, [toast])
-
-  const clearStallTimer = useCallback(() => {
-    if (stallTimerRef.current) {
-      clearTimeout(stallTimerRef.current)
-      stallTimerRef.current = null
-    }
-  }, [])
-
-  // ---- Select a track (for mobile navigation) ------------------------------
-  const openTrack = useCallback((idx: number) => {
-    setSelectedIdx(idx)
-    setStreamUrl(null)
-    currentTimeRef.current = 0
-    retryCountRef.current = 0
-  }, [])
 
   const goBack = useCallback(() => {
     setSelectedIdx(null)
-    setStreamUrl(null)
-    currentTimeRef.current = 0
-    retryCountRef.current = 0
-  }, [])
+    audio.stop()
+  }, [audio])
 
   // ========================================================================
-  // RENDER
+  // RENDER — sub-panels
   // ========================================================================
 
-  // ---- Tracklist panel (shared between desktop sidebar & mobile list) ------
-  const trackList = (
-    <Card noHover className="p-0!">
-      <div className="border-b border-foreground/20 px-4 py-3 flex items-center gap-3">
-        <div className="relative w-8 h-8 shrink-0 border border-foreground/20 overflow-hidden">
-          <Image
-            src={album.cover}
-            alt={album.title}
-            fill
-            sizes="32px"
-            className="object-cover"
-          />
-        </div>
-        <div>
-          <span className="text-xs font-mono font-bold">{album.title}</span>
-          <span className="text-[10px] font-mono opacity-40 ml-2">
-            {tracks.length} tracks
-          </span>
-        </div>
-      </div>
-      <ul className="divide-y divide-foreground/10 max-h-[70vh] overflow-y-auto">
-        {tracks.map((track, idx) => (
-          <li key={track.title}>
-            <button
-              onClick={() => openTrack(idx)}
-              className={`cursor-target w-full text-left px-3 py-3 flex items-center gap-3 transition-colors duration-150 cursor-pointer ${
-                idx === selectedIdx
-                  ? 'bg-primary-blue/10 border-l-2 border-primary-blue'
-                  : 'hover:bg-foreground/5 border-l-2 border-transparent'
-              }`}
-            >
-              {/* Thumbnail */}
-              <div className="relative w-10 h-10 shrink-0 border border-foreground/20 overflow-hidden">
-                <Image
-                  src={trackCover(track, album.cover)}
-                  alt={track.title}
-                  fill
-                  sizes="40px"
-                  className="object-cover"
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[10px] font-mono opacity-40">
-                    {String(idx + 1).padStart(2, '0')}
-                  </span>
-                  <span className="text-sm font-bold truncate">
-                    {track.title}
-                  </span>
-                </div>
-                {track.author && (
-                  <p className="text-[10px] opacity-50 truncate">
-                    {track.author}
-                  </p>
-                )}
-              </div>
-              {track.duration && (
-                <span className="text-[10px] font-mono opacity-40 shrink-0">
-                  {track.duration}
-                </span>
-              )}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  )
-
-  // ---- Player panel --------------------------------------------------------
   const playerPanel = selected ? (
     <div className="space-y-6">
       {/* Cover art */}
@@ -385,18 +135,17 @@ export default function PortalInner({ data }: PortalInnerProps) {
         </div>
       </div>
 
-      {/* Audio controls / play button — the actual <audio> element is rendered
-           once at the component root to avoid duplicate playback. */}
-      {streamUrl ? (
+      {/* Play / streaming status */}
+      {audio.streamUrl ? (
         <p className="text-[10px] font-mono opacity-30 text-center py-2">
-          {isBuffering ? 'バッファリング中…' : 'ストリーミング再生中'}
+          {audio.isBuffering ? 'バッファリング中…' : 'ストリーミング再生中'}
         </p>
       ) : (
         <Button
           variant="secondary"
           size="lg"
           className="w-full"
-          onClick={() => handlePlay(selected)}
+          onClick={() => audio.play(selected)}
         >
           ▶ 再生
         </Button>
@@ -404,13 +153,10 @@ export default function PortalInner({ data }: PortalInnerProps) {
     </div>
   ) : null
 
-  // ---- Detail panel (credits + MDX + download) -----------------------------
   const detailPanel = selected ? (
     <div className="space-y-6">
-      {/* Credits */}
       <TrackCredits track={selected} albumTitle={album.title} />
 
-      {/* Download button */}
       <Button
         variant="primary"
         size="lg"
@@ -421,7 +167,6 @@ export default function PortalInner({ data }: PortalInnerProps) {
         {isDownloading ? 'ダウンロード中…' : 'ダウンロード'}
       </Button>
 
-      {/* MDX body */}
       {selected.body && (
         <div className="prose dark:prose-invert max-w-none">
           <div className="bg-card-bg/50 p-6 border border-foreground/10 backdrop-blur-sm shadow-sm">
@@ -435,12 +180,18 @@ export default function PortalInner({ data }: PortalInnerProps) {
   // ========================================================================
   // DESKTOP layout (3-column)
   // ========================================================================
+
   const desktopLayout = (
     <div className="hidden md:grid md:grid-cols-12 gap-6">
-      {/* Left: tracklist */}
-      <aside className="col-span-3">{trackList}</aside>
+      <aside className="col-span-3">
+        <TrackList
+          album={album}
+          tracks={tracks}
+          selectedIdx={selectedIdx}
+          onSelect={openTrack}
+        />
+      </aside>
 
-      {/* Middle: player */}
       <div className="col-span-4">
         {playerPanel ?? (
           <Card noHover>
@@ -451,7 +202,6 @@ export default function PortalInner({ data }: PortalInnerProps) {
         )}
       </div>
 
-      {/* Right: credits + MDX + download */}
       <div className="col-span-5">
         {detailPanel ?? (
           <Card noHover>
@@ -467,13 +217,17 @@ export default function PortalInner({ data }: PortalInnerProps) {
   // ========================================================================
   // MOBILE layout (2-screen SPA)
   // ========================================================================
+
   const mobileLayout = (
     <div className="md:hidden">
       {selectedIdx === null ? (
-        /* Screen 1: tracklist */
-        trackList
+        <TrackList
+          album={album}
+          tracks={tracks}
+          selectedIdx={selectedIdx}
+          onSelect={openTrack}
+        />
       ) : (
-        /* Screen 2: track detail */
         <div className="space-y-6">
           <button
             onClick={goBack}
@@ -481,7 +235,6 @@ export default function PortalInner({ data }: PortalInnerProps) {
           >
             &lt; トラック一覧に戻る
           </button>
-
           {playerPanel}
           {detailPanel}
         </div>
@@ -513,44 +266,20 @@ export default function PortalInner({ data }: PortalInnerProps) {
       {desktopLayout}
       {mobileLayout}
 
-      {/* Single <audio> element — rendered once here to prevent the desktop
-           and mobile layouts from each mounting their own instance and
-           playing simultaneously. */}
-      {streamUrl && (
+      {/* Single <audio> element — rendered once to prevent desktop/mobile
+           layouts from each mounting their own instance. */}
+      {audio.streamUrl && selected && (
         <audio
-          ref={audioRef}
-          src={streamUrl}
+          ref={audio.audioRef}
+          src={audio.streamUrl}
           controls
           autoPlay
-          onError={handleAudioError}
-          onCanPlay={() => {
-            setIsBuffering(false)
-            clearStallTimer()
-            // Only restore position after an error-triggered reload (retryCountRef > 0).
-            // canplay also fires on every normal seek/buffer, so guarding with
-            // retryCountRef prevents seeking from being cancelled in a loop.
-            if (
-              audioRef.current &&
-              retryCountRef.current > 0 &&
-              currentTimeRef.current > 0
-            ) {
-              audioRef.current.currentTime = currentTimeRef.current
-              audioRef.current.play().catch(() => {
-                toast.show(
-                  '自動再生がブロックされました。再生ボタンをタップしてください。',
-                  'info'
-                )
-              })
-            }
-          }}
-          onWaiting={() => setIsBuffering(true)}
-          onStalled={handleStalled}
-          onPlaying={clearStallTimer}
-          onTimeUpdate={() => {
-            if (audioRef.current) {
-              currentTimeRef.current = audioRef.current.currentTime
-            }
-          }}
+          onError={() => audio.handleError(selected)}
+          onCanPlay={audio.handleCanPlay}
+          onWaiting={audio.handleWaiting}
+          onStalled={audio.handleStalled}
+          onPlaying={audio.clearStallTimer}
+          onTimeUpdate={audio.handleTimeUpdate}
           className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[min(90vw,480px)] z-50 shadow-lg"
         />
       )}
