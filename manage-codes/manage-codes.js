@@ -167,13 +167,31 @@ function push() {
   const updateCols = headers.filter((h) => h !== 'code' && h !== 'is_suspended')
 
   const statements = []
+  let skipped = 0
   for (const line of dataLines) {
     if (!line.trim()) continue
     const vals = parseCsvLine(line)
+
+    // Validate values before interpolating into SQL
+    const code = vals[headers.indexOf('code')] ?? ''
+    const albumId = vals[headers.indexOf('album_id')] ?? ''
+    if (!code || /[^a-zA-Z0-9_\-]/.test(code)) {
+      console.warn(`⚠️  Skipping invalid code: "${code}"`)
+      skipped++
+      continue
+    }
+    if (!albumId || /[^a-zA-Z0-9_\-]/.test(albumId)) {
+      console.warn(`⚠️  Skipping invalid album_id: "${albumId}"`)
+      skipped++
+      continue
+    }
+
     const sqlVals = headers.map((h, i) => {
       const v = vals[i] ?? ''
       if (['issued_at', 'valid_duration', 'is_suspended'].includes(h)) {
-        return Number(v) || 0
+        const num = Number(v)
+        if (!Number.isFinite(num) || num < 0) return 0
+        return Math.floor(num)
       }
       return `'${v.replace(/'/g, "''")}'`
     })
@@ -205,6 +223,9 @@ function push() {
       }
     }
     console.log(`✅ Pushed ${pushed} row(s) to remote D1.`)
+    if (skipped > 0) {
+      console.log(`⚠️  Skipped ${skipped} row(s) with invalid data.`)
+    }
   } catch (e) {
     console.error(`❌ Push failed after ${pushed} rows:`, e.message)
   } finally {

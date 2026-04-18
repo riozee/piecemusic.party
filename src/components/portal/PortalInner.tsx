@@ -5,6 +5,7 @@ import Image from 'next/image'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import { MDXContent } from '@/components/mdx-content'
+import { useToast } from './ToastProvider'
 import type { AlbumData, Track } from './types'
 
 interface PortalInnerProps {
@@ -86,13 +87,16 @@ function TrackCredits({
 /* ================================================================== */
 export default function PortalInner({ data }: PortalInnerProps) {
   const { album, tracks } = data
+  const toast = useToast()
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [streamUrl, setStreamUrl] = useState<string | null>(null)
+  const [isBuffering, setIsBuffering] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const currentTimeRef = useRef(0)
   const retryCountRef = useRef(0)
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const selected: Track | undefined =
     selectedIdx !== null ? tracks[selectedIdx] : undefined
@@ -103,25 +107,79 @@ export default function PortalInner({ data }: PortalInnerProps) {
     [album.id]
   )
 
-  // ---- Download handler (signed-URL via <a download>, no blob) -----------
+  // ---- Download handler (fetch + blob for proper error handling) ----------
   const handleDownload = useCallback(
-    (track: Track) => {
-      setError(null)
+    async (track: Track) => {
+      if (!navigator.onLine) {
+        toast.show(
+          'インターネットに接続されていません。接続を確認してから再度お試しください。',
+          'warning'
+        )
+        return
+      }
+      setIsDownloading(true)
       const url = `/api/access?file=${encodeURIComponent(r2Key(track))}&dl=1`
-      const a = document.createElement('a')
-      a.href = url
-      a.download = track.filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+
+      try {
+        const res = await fetch(url)
+        if (!res.ok) {
+          if (res.status === 401) {
+            toast.show(
+              'セッションの有効期限が切れました。ページを再読み込みして再度パスコードを入力してください。',
+              'error'
+            )
+          } else if (
+            res.headers.get('Content-Type')?.includes('application/json')
+          ) {
+            const data = (await res.json()) as { error?: string }
+            toast.show(
+              data.error ??
+                'ダウンロードを開始できませんでした。しばらく経ってからもう一度お試しください。',
+              'error'
+            )
+          } else {
+            toast.show(
+              'ダウンロードを開始できませんでした。しばらく経ってからもう一度お試しください。',
+              'error'
+            )
+          }
+          return
+        }
+
+        const blob = await res.blob()
+        let blobUrl: string
+        try {
+          blobUrl = URL.createObjectURL(blob)
+        } catch {
+          toast.show(
+            'ファイルの準備中にメモリ不足が発生しました。ほかのタブを閉じてから再度お試しください。',
+            'error'
+          )
+          return
+        }
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = track.filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        // Revoke after a delay to let the download start
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+      } catch {
+        toast.show(
+          'ダウンロード中に通信が切断されました。通信環境をご確認の上、もう一度お試しください。',
+          'error'
+        )
+      } finally {
+        setIsDownloading(false)
+      }
     },
-    [r2Key]
+    [r2Key, toast]
   )
 
   // ---- Play handler (direct URL, cookie-authenticated) ---------------------
   const handlePlay = useCallback(
     (track: Track) => {
-      setError(null)
       retryCountRef.current = 0
       currentTimeRef.current = 0
       setStreamUrl(`/api/access?file=${encodeURIComponent(r2Key(track))}`)
@@ -129,17 +187,59 @@ export default function PortalInner({ data }: PortalInnerProps) {
     [r2Key]
   )
 
-  // ---- Audio error handler (bounded retries) --------------------------------
-  const handleAudioError = useCallback(() => {
+  // ---- Audio error handler (bounded retries with session check) -----------
+  const handleAudioError = useCallback(async () => {
     const audio = audioRef.current
     if (!audio || selectedIdx === null) return
 
     const track = tracks[selectedIdx]
     if (!track) return
 
+    // Check if the error is due to a server-side issue (expired session,
+    // missing file, etc.) BEFORE inspecting the MediaError code.
+    // A non-audio response (e.g. 404 HTML or JSON error) causes the browser
+    // to report MEDIA_ERR_SRC_NOT_SUPPORTED, which would be misleading if
+    // we checked it first.
+    try {
+      const checkUrl = `/api/access?file=${encodeURIComponent(r2Key(track))}`
+      const res = await fetch(checkUrl, { method: 'HEAD' })
+      if (res.status === 401 || res.status === 403) {
+        toast.show(
+          'セッションの有効期限が切れました。ページを再読み込みして再度パスコードを入力してください。',
+          'error',
+          { persistent: true }
+        )
+        setStreamUrl(null)
+        return
+      }
+      if (res.status === 404) {
+        toast.show(
+          '音声ファイルが見つかりません。ページを再読み込みしてお試しください。問題が続く場合はお問い合わせください。',
+          'error'
+        )
+        setStreamUrl(null)
+        return
+      }
+    } catch {
+      // Network error — fall through to generic retry logic
+    }
+
+    // Only check format support AFTER confirming the server is reachable
+    // and returning a valid audio response.
+    const mediaErr = audio.error
+    if (mediaErr?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+      toast.show(
+        'このブラウザではこの音声形式を再生できません。別のブラウザ（Chrome / Safari）をお試しください。',
+        'error'
+      )
+      setStreamUrl(null)
+      return
+    }
+
     if (retryCountRef.current >= MAX_AUDIO_RETRIES) {
-      setError(
-        '再生エラーが発生しました。ページを再読み込みして再度お試しください。'
+      toast.show(
+        '再生を続行できませんでした。通信環境をご確認の上、ページを再読み込みしてお試しください。',
+        'error'
       )
       setStreamUrl(null)
       return
@@ -147,16 +247,35 @@ export default function PortalInner({ data }: PortalInnerProps) {
 
     retryCountRef.current++
     currentTimeRef.current = audio.currentTime
+    toast.show('再生が中断されました。再接続しています…', 'warning')
 
     // Force reload with a cache-busting param
     const url = `/api/access?file=${encodeURIComponent(r2Key(track))}&t=${Date.now()}`
     setStreamUrl(url)
-  }, [selectedIdx, tracks, r2Key])
+  }, [selectedIdx, tracks, r2Key, toast])
+
+  // ---- Audio stall handler (detects prolonged buffering) ------------------
+  const handleStalled = useCallback(() => {
+    if (stallTimerRef.current) return
+    stallTimerRef.current = setTimeout(() => {
+      stallTimerRef.current = null
+      toast.show(
+        '読み込みに時間がかかっています。通信環境をご確認ください。',
+        'warning'
+      )
+    }, 8000)
+  }, [toast])
+
+  const clearStallTimer = useCallback(() => {
+    if (stallTimerRef.current) {
+      clearTimeout(stallTimerRef.current)
+      stallTimerRef.current = null
+    }
+  }, [])
 
   // ---- Select a track (for mobile navigation) ------------------------------
   const openTrack = useCallback((idx: number) => {
     setSelectedIdx(idx)
-    setError(null)
     setStreamUrl(null)
     currentTimeRef.current = 0
     retryCountRef.current = 0
@@ -165,7 +284,6 @@ export default function PortalInner({ data }: PortalInnerProps) {
   const goBack = useCallback(() => {
     setSelectedIdx(null)
     setStreamUrl(null)
-    setError(null)
     currentTimeRef.current = 0
     retryCountRef.current = 0
   }, [])
@@ -271,7 +389,7 @@ export default function PortalInner({ data }: PortalInnerProps) {
            once at the component root to avoid duplicate playback. */}
       {streamUrl ? (
         <p className="text-[10px] font-mono opacity-30 text-center py-2">
-          ストリーミング再生中
+          {isBuffering ? 'バッファリング中…' : 'ストリーミング再生中'}
         </p>
       ) : (
         <Button
@@ -293,19 +411,14 @@ export default function PortalInner({ data }: PortalInnerProps) {
       <TrackCredits track={selected} albumTitle={album.title} />
 
       {/* Download button */}
-      {error && (
-        <div className="text-sm text-primary-pink border border-primary-pink/30 bg-primary-pink/5 px-4 py-2 font-mono">
-          {error}
-        </div>
-      )}
-
       <Button
         variant="primary"
         size="lg"
         className="w-full"
         onClick={() => handleDownload(selected)}
+        disabled={isDownloading}
       >
-        ダウンロード
+        {isDownloading ? 'ダウンロード中…' : 'ダウンロード'}
       </Button>
 
       {/* MDX body */}
@@ -411,14 +524,28 @@ export default function PortalInner({ data }: PortalInnerProps) {
           autoPlay
           onError={handleAudioError}
           onCanPlay={() => {
+            setIsBuffering(false)
+            clearStallTimer()
             // Only restore position after an error-triggered reload (retryCountRef > 0).
             // canplay also fires on every normal seek/buffer, so guarding with
             // retryCountRef prevents seeking from being cancelled in a loop.
-            if (audioRef.current && retryCountRef.current > 0 && currentTimeRef.current > 0) {
+            if (
+              audioRef.current &&
+              retryCountRef.current > 0 &&
+              currentTimeRef.current > 0
+            ) {
               audioRef.current.currentTime = currentTimeRef.current
-              audioRef.current.play().catch(() => {})
+              audioRef.current.play().catch(() => {
+                toast.show(
+                  '自動再生がブロックされました。再生ボタンをタップしてください。',
+                  'info'
+                )
+              })
             }
           }}
+          onWaiting={() => setIsBuffering(true)}
+          onStalled={handleStalled}
+          onPlaying={clearStallTimer}
           onTimeUpdate={() => {
             if (audioRef.current) {
               currentTimeRef.current = audioRef.current.currentTime

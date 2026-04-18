@@ -34,7 +34,7 @@ let sdkReady: Promise<void> | null = null
 function loadSdk(): Promise<void> {
   if (sdkReady) return sdkReady
 
-  sdkReady = new Promise<void>((resolve) => {
+  sdkReady = new Promise<void>((resolve, reject) => {
     // SDK already initialised
     if (getTurnstile()) {
       resolve()
@@ -67,6 +67,10 @@ function loadSdk(): Promise<void> {
         }
       }, 50)
     }
+    // Detect ad-blocker or network failure preventing script load
+    script.onerror = () => {
+      reject(new Error('Turnstile script blocked'))
+    }
     document.head.appendChild(script)
   })
 
@@ -87,6 +91,9 @@ export interface UseTurnstileReturn {
 
   /** `true` once the widget is mounted and ready for `execute()` calls. */
   widgetReady: boolean
+
+  /** `true` when the Turnstile challenge has errored or expired and needs a page reload. */
+  widgetError: boolean
 
   /**
    * Request a fresh single-use token on demand.
@@ -120,33 +127,43 @@ export function useTurnstile(
   const widgetIdRef = useRef<string | null>(null)
   const tokenRef = useRef<string | null>(null)
   const [widgetReady, setWidgetReady] = useState(false)
+  const [widgetError, setWidgetError] = useState(false)
 
   /* ---- Mount: load SDK → render widget ---------------------------------- */
   useEffect(() => {
     let disposed = false
 
-    loadSdk().then(() => {
-      if (disposed) return
-      const ts = getTurnstile()
-      if (!ts || !containerRef.current) return
+    loadSdk()
+      .then(() => {
+        if (disposed) return
+        const ts = getTurnstile()
+        if (!ts || !containerRef.current) return
 
-      widgetIdRef.current = ts.render(containerRef.current, {
-        sitekey: TURNSTILE_SITE_KEY,
-        execution: 'execute',
-        callback: (token: string) => {
-          tokenRef.current = token
-        },
-        'expired-callback': () => {
-          tokenRef.current = null
-        },
-        'error-callback': () => {
-          tokenRef.current = null
-        },
-        size,
-        theme: 'dark',
+        widgetIdRef.current = ts.render(containerRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          execution: 'execute',
+          callback: (token: string) => {
+            tokenRef.current = token
+          },
+          'expired-callback': () => {
+            tokenRef.current = null
+            setWidgetError(true)
+          },
+          'error-callback': () => {
+            tokenRef.current = null
+            setWidgetError(true)
+          },
+          size,
+          theme: 'dark',
+        })
+        setWidgetReady(true)
       })
-      setWidgetReady(true)
-    })
+      .catch(() => {
+        // Script failed to load — likely ad-blocker
+        if (!disposed) {
+          setWidgetError(true)
+        }
+      })
 
     return () => {
       disposed = true
@@ -170,16 +187,17 @@ export function useTurnstile(
       // Reset any previous state and discard stale token before fresh challenge
       ts.reset(widgetIdRef.current)
       tokenRef.current = null
+      setWidgetError(false)
       ts.execute(widgetIdRef.current)
 
-      // Poll for the callback-delivered token (max ~5 s)
+      // Poll for the callback-delivered token (max ~15 s)
       let attempts = 0
       const iv = setInterval(() => {
         attempts++
         if (tokenRef.current) {
           clearInterval(iv)
           resolve(tokenRef.current)
-        } else if (attempts > 25) {
+        } else if (attempts > 75) {
           clearInterval(iv)
           reject(new Error('Turnstile token timeout'))
         }
@@ -196,5 +214,5 @@ export function useTurnstile(
     tokenRef.current = null
   }, [])
 
-  return { containerRef, widgetReady, getToken, reset }
+  return { containerRef, widgetReady, widgetError, getToken, reset }
 }

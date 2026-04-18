@@ -53,13 +53,25 @@ function json(
 }
 
 function isSafePath(path: string): boolean {
-  if (path.includes('..')) return false
-  try {
-    const decoded = decodeURIComponent(path)
-    return !decoded.split('/').some((seg) => seg === '..')
-  } catch {
-    return false
+  // Block null bytes (raw and percent-encoded)
+  if (path.includes('\0') || path.includes('%00')) return false
+  // Block absolute paths and backslashes
+  if (path.startsWith('/') || path.includes('\\')) return false
+
+  // Iteratively decode to catch double/triple percent-encoding attacks
+  let decoded = path
+  for (let i = 0; i < 3; i++) {
+    try {
+      const next = decodeURIComponent(decoded)
+      if (next === decoded) break
+      decoded = next
+    } catch {
+      return false
+    }
   }
+
+  // Block directory traversal and self-reference segments
+  return !decoded.split('/').some((seg) => seg === '..' || seg === '.')
 }
 
 async function verifyTurnstile(
@@ -91,17 +103,17 @@ const SESSION_MAX_AGE = 86400
 interface SessionPayload {
   /** album_id */
   a: string
-  /** passcode */
-  c: string
   /** expiry (unix seconds) */
   e: number
 }
 
 function base64url(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 function base64urlDecode(str: string): string {
@@ -126,15 +138,27 @@ async function hmacSign(data: string, secret: string): Promise<string> {
     .join('')
 }
 
+/**
+ * Constant-time string comparison via double-HMAC.
+ * Prevents timing side-channels when comparing HMAC signatures.
+ */
+async function timingSafeCompare(
+  a: string,
+  b: string,
+  secret: string
+): Promise<boolean> {
+  if (a.length !== b.length) return false
+  const [ha, hb] = await Promise.all([hmacSign(a, secret), hmacSign(b, secret)])
+  return ha === hb
+}
+
 async function createSessionCookie(
   albumId: string,
-  code: string,
   maxAge: number,
   secret: string
 ): Promise<string> {
   const payload: SessionPayload = {
     a: albumId,
-    c: code,
     e: Math.floor(Date.now() / 1000) + maxAge,
   }
   const enc = new TextEncoder()
@@ -148,7 +172,7 @@ async function createSessionCookie(
     'Path=/api/access',
     'HttpOnly',
     'Secure',
-    'SameSite=Lax',
+    'SameSite=Strict',
     `Max-Age=${maxAge}`,
   ].join('; ')
 }
@@ -171,9 +195,10 @@ async function verifySessionCookie(
   const payloadB64 = value.slice(0, dotIdx)
   const sig = value.slice(dotIdx + 1)
 
-  // Verify HMAC
+  // Verify HMAC (constant-time comparison to prevent timing attacks)
   const expected = await hmacSign(payloadB64, secret)
-  if (sig !== expected) return null
+  const valid = await timingSafeCompare(sig, expected, secret)
+  if (!valid) return null
 
   // Decode payload
   try {
@@ -194,40 +219,57 @@ async function verifySessionCookie(
 // Range request helpers
 // ---------------------------------------------------------------------------
 
-interface ParsedRange {
-  offset: number
-  length: number
-}
+/**
+ * Parse a Range header into an R2-compatible range descriptor.
+ * The returned object can be passed directly to `R2Bucket.get()`.
+ */
+type ParsedRange =
+  | { offset: number; length: number }
+  | { offset: number }
+  | { suffix: number }
 
-function parseRangeHeader(
-  header: string,
-  totalSize: number
-): ParsedRange | null {
+function parseRange(header: string): ParsedRange | null {
   const match = header.match(/bytes=(\d*)-(\d*)/)
   if (!match) return null
 
   const [, startStr, endStr] = match
-
   if (startStr === '' && endStr === '') return null
-
-  let offset: number
-  let end: number
 
   if (startStr === '') {
     // Suffix range: bytes=-500
-    const suffix = parseInt(endStr, 10)
-    offset = Math.max(0, totalSize - suffix)
-    end = totalSize - 1
-  } else {
-    offset = parseInt(startStr, 10)
-    if (offset >= totalSize) return null
-    end =
-      endStr !== ''
-        ? Math.min(parseInt(endStr, 10), totalSize - 1)
-        : totalSize - 1
+    return { suffix: parseInt(endStr, 10) }
   }
 
+  const offset = parseInt(startStr, 10)
+  if (endStr === '') {
+    // Open-ended range: bytes=500-
+    return { offset }
+  }
+
+  // Bounded range: bytes=0-499
+  const end = parseInt(endStr, 10)
   return { offset, length: end - offset + 1 }
+}
+
+/**
+ * Resolve the actual byte range served, given the parsed range
+ * and the total object size. Used to build Content-Range headers.
+ */
+function resolveRange(
+  range: ParsedRange,
+  totalSize: number
+): { start: number; end: number } | null {
+  if ('suffix' in range) {
+    const start = Math.max(0, totalSize - range.suffix)
+    return { start, end: totalSize - 1 }
+  }
+  const start = range.offset
+  if (start >= totalSize) return null
+  const end =
+    'length' in range
+      ? Math.min(start + range.length - 1, totalSize - 1)
+      : totalSize - 1
+  return { start, end }
 }
 
 // ---------------------------------------------------------------------------
@@ -368,18 +410,24 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   // violations when concurrent requests arrive from the same new IP.
   context.waitUntil(
     (async () => {
-      await env.DB.prepare(
-        `INSERT INTO ip_tracking (code, ip, first_seen, last_seen)
+      try {
+        await env.DB.prepare(
+          `INSERT INTO ip_tracking (code, ip, first_seen, last_seen)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(code, ip) DO UPDATE SET last_seen = excluded.last_seen`
-      )
-        .bind(code, ip, now, now)
-        .run()
+        )
+          .bind(code, ip, now, now)
+          .run()
 
-      // Prune IPs older than 6 hours (rolling window)
-      await env.DB.prepare('DELETE FROM ip_tracking WHERE last_seen < ?')
-        .bind(now - 21600)
-        .run()
+        // Prune IPs older than 6 hours — scoped to current code to avoid table scan
+        await env.DB.prepare(
+          'DELETE FROM ip_tracking WHERE code = ? AND last_seen < ?'
+        )
+          .bind(code, now - 21600)
+          .run()
+      } catch (err) {
+        console.error('[ip-tracking] background task failed:', err)
+      }
     })()
   )
 
@@ -393,7 +441,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   const cookie = await createSessionCookie(
     album_id,
-    code,
     sessionAge,
     env.STREAM_SECRET
   )
@@ -451,7 +498,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   // File must be scoped under the authenticated album
   if (!file.startsWith(`${session.a}/`)) {
-    return json({ error: 'アクセス権がありません。' }, 403)
+    return json(
+      {
+        error:
+          'このファイルへのアクセス権がありません。ページを再読み込みして再度パスコードを入力してください。',
+      },
+      403
+    )
   }
 
   // ---- Build common response headers ---------------------------------------
@@ -461,49 +514,56 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   headers.set('Cache-Control', 'private, max-age=300')
 
   const basename = file.split('/').pop() ?? 'download'
+  const encodedName = encodeURIComponent(basename)
+  const asciiFallback = basename.replace(/[^\x20-\x7E]/g, '_')
+  const disposition = dl ? 'attachment' : 'inline'
   headers.set(
     'Content-Disposition',
-    dl
-      ? `attachment; filename="${encodeURIComponent(basename)}"`
-      : `inline; filename="${encodeURIComponent(basename)}"`
+    `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`
   )
+  headers.set('Vary', 'Range')
 
   // ---- Range request (206 Partial Content) ---------------------------------
   if (rangeHeader) {
-    // HEAD to get full object size for Content-Range calculation
-    const headObj = await env.R2_BUCKET.head(file)
-    if (!headObj) {
-      return json({ error: '指定されたファイルが見つかりません。' }, 404)
+    const range = parseRange(rangeHeader)
+    if (!range) {
+      return new Response(null, {
+        status: 416,
+        headers: { 'Content-Range': 'bytes */*' },
+      })
     }
 
-    const totalSize = headObj.size
-    const range = parseRangeHeader(rangeHeader, totalSize)
+    // Single R2 fetch — object.size is always the full object size
+    const object = await env.R2_BUCKET.get(file, { range })
+    if (!object) {
+      return json(
+        {
+          error:
+            '指定されたファイルが見つかりません。ページを再読み込みしてお試しください。問題が続く場合はお問い合わせください。',
+        },
+        404
+      )
+    }
 
-    if (!range) {
+    const totalSize = object.size
+    const resolved = resolveRange(range, totalSize)
+    if (!resolved) {
       return new Response(null, {
         status: 416,
         headers: { 'Content-Range': `bytes */${totalSize}` },
       })
     }
 
-    const object = await env.R2_BUCKET.get(file, {
-      range: { offset: range.offset, length: range.length },
-    })
-    if (!object) {
-      return json({ error: '指定されたファイルが見つかりません。' }, 404)
-    }
-
-    // Content-Type from R2 metadata — not hardcoded
     headers.set(
       'Content-Type',
-      headObj.httpMetadata?.contentType ?? 'application/octet-stream'
+      object.httpMetadata?.contentType ?? 'application/octet-stream'
     )
-    const endByte = range.offset + range.length - 1
+    const contentLength = resolved.end - resolved.start + 1
     headers.set(
       'Content-Range',
-      `bytes ${range.offset}-${endByte}/${totalSize}`
+      `bytes ${resolved.start}-${resolved.end}/${totalSize}`
     )
-    headers.set('Content-Length', String(range.length))
+    headers.set('Content-Length', String(contentLength))
 
     return new Response(object.body as ReadableStream, {
       status: 206,
@@ -514,7 +574,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   // ---- Full response (no Range) --------------------------------------------
   const object = await env.R2_BUCKET.get(file)
   if (!object) {
-    return json({ error: '指定されたファイルが見つかりません。' }, 404)
+    return json(
+      {
+        error:
+          '指定されたファイルが見つかりません。ページを再読み込みしてお試しください。問題が続く場合はお問い合わせください。',
+      },
+      404
+    )
   }
 
   // Content-Type from R2 metadata — not hardcoded

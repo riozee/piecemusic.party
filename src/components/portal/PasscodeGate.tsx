@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import { useTurnstile } from '@/lib/useTurnstile'
+import { PORTAL_LS_KEY } from './types'
+import { useToast } from './ToastProvider'
 
 interface PasscodeGateProps {
   albumId: string
@@ -17,12 +19,11 @@ interface PasscodeGateProps {
  *
  * Supports ?code=XXXX — pre-fills and auto-submits the passcode.
  */
-const LS_KEY = 'portal_codes'
 
 function readCodeFromStorage(albumId: string): string {
   try {
     const stored: Record<string, string> = JSON.parse(
-      localStorage.getItem(LS_KEY) ?? '{}'
+      localStorage.getItem(PORTAL_LS_KEY) ?? '{}'
     )
     return stored[albumId] ?? ''
   } catch {
@@ -33,6 +34,7 @@ function readCodeFromStorage(albumId: string): string {
 export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
   const searchParams = useSearchParams()
   const autoCode = searchParams.get('code')
+  const toast = useToast()
 
   const [code, setCode] = useState(() => {
     // ?code= takes priority (and will auto-submit)
@@ -44,7 +46,8 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
   const [loading, setLoading] = useState(false)
   const autoSubmittedRef = useRef(false)
 
-  const { containerRef, widgetReady, getToken, reset } = useTurnstile()
+  const { containerRef, widgetReady, widgetError, getToken, reset } =
+    useTurnstile()
 
   // Next.js inlines process.env.NODE_ENV as a string literal at build time —
   // this branch is completely dead-code-eliminated in production builds.
@@ -85,14 +88,23 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
           return
         }
 
+        // Server returned an error — show the server's message inline
         const data = (await res.json()) as { error?: string }
-        setError(data.error ?? `エラーが発生しました (${res.status})`)
-      } catch (err) {
         setError(
-          err instanceof Error
-            ? err.message
-            : 'ネットワークエラーが発生しました。'
+          data.error ??
+            'サーバーとの通信中にエラーが発生しました。しばらく経ってからもう一度お試しください。'
         )
+      } catch (err) {
+        // Network-level failures — the server was never reached
+        if (err instanceof Error && err.message === 'Turnstile token timeout') {
+          setError(
+            'セキュリティ確認がタイムアウトしました。広告ブロッカーを無効にするか、ページを再読み込みしてお試しください。'
+          )
+        } else {
+          setError(
+            'サーバーとの通信が切断されました。通信環境をご確認の上、数分後にもう一度お試しください。'
+          )
+        }
       } finally {
         // Turnstile tokens are single-use — always reset after request
         reset()
@@ -121,6 +133,21 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
     doSubmit(autoCode.trim())
   }, [autoCode, isDev, widgetReady, doSubmit])
 
+  // ---- Surface Turnstile widget failure as a toast (not inline) ------------
+  // This fires when ad-blockers prevent the SDK from loading, or when the
+  // challenge expires / errors after the widget was already mounted.
+  const turnstileToastShown = useRef(false)
+  useEffect(() => {
+    if (widgetError && !turnstileToastShown.current) {
+      turnstileToastShown.current = true
+      toast.show(
+        'セキュリティ確認の読み込みに失敗しました。広告ブロッカーを無効にするか、ページを再読み込みしてください。',
+        'warning',
+        { persistent: true }
+      )
+    }
+  }, [widgetError, toast])
+
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <Card className="w-full max-w-md">
@@ -147,6 +174,8 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
               autoComplete="off"
               spellCheck={false}
               placeholder="XXXXXXXX"
+              aria-invalid={!!error}
+              aria-describedby={error ? 'passcode-error' : undefined}
               className="cursor-target w-full bg-transparent border border-foreground/40 px-4 py-3 font-mono text-sm tracking-widest focus:outline-none focus:border-primary-blue transition-colors"
             />
           </div>
@@ -155,7 +184,11 @@ export default function PasscodeGate({ albumId, onUnlock }: PasscodeGateProps) {
           <div ref={containerRef} className="flex justify-center" />
 
           {error && (
-            <div className="text-sm text-primary-pink border border-primary-pink/30 bg-primary-pink/5 px-4 py-2 font-mono">
+            <div
+              id="passcode-error"
+              role="alert"
+              className="text-sm text-primary-pink border border-primary-pink/30 bg-primary-pink/5 px-4 py-2 font-mono"
+            >
               {error}
             </div>
           )}

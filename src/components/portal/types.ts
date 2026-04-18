@@ -48,3 +48,6 @@ export interface AlbumData {
   album: AlbumInfo
   tracks: Track[]
 }
+
+/** localStorage key for saved passcodes — single source of truth. */
+export const PORTAL_LS_KEY = 'portal_codes'
