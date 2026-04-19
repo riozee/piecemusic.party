@@ -51,6 +51,8 @@ interface PasscodeRow {
   issued_at: number
   valid_duration: number
   is_suspended: number
+  last_used: number
+  usage_count: number
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +134,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     sessionAge = Math.min(SESSION_MAX_AGE_S, Math.max(remaining, 0))
   }
 
+  // ---- Update usage stats (non-blocking) --------------------------------
+  context.waitUntil(updateUsageStats(env.DB, code))
+
   const cookie = await createSessionCookie(
     album_id,
     sessionAge,
@@ -188,6 +193,28 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   // ---- Full response -------------------------------------------------------
   return serveFullFile(env.R2_BUCKET, file, headers)
+}
+
+// ---------------------------------------------------------------------------
+// Usage stats helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Increment usage_count and set last_used timestamp for a passcode.
+ * Runs via waitUntil so it never blocks the response.
+ */
+async function updateUsageStats(db: D1Database, code: string): Promise<void> {
+  try {
+    const now = Math.floor(Date.now() / 1000)
+    await db
+      .prepare(
+        'UPDATE passcodes SET usage_count = usage_count + 1, last_used = ? WHERE code = ?'
+      )
+      .bind(now, code)
+      .run()
+  } catch (err) {
+    console.error('[access] usage stats update failed:', err)
+  }
 }
 
 // ---------------------------------------------------------------------------

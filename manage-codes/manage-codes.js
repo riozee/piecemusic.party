@@ -10,8 +10,8 @@
  * Safety notes:
  * - push uses UPSERT (ON CONFLICT) instead of INSERT OR REPLACE to preserve
  *   columns not present in the CSV (e.g. future usage counters).
- * - is_suspended is NEVER overwritten by push to prevent accidentally
- *   re-enabling auto-suspended codes when pushing stale CSV data.
+ * - is_suspended, last_used, and usage_count are NEVER overwritten by push
+ *   to prevent accidentally resetting server-side data when pushing stale CSV.
  * - pull paginates with LIMIT/OFFSET for large datasets.
  * - push chunks SQL statements in batches of 200 to stay within D1 limits.
  */
@@ -98,6 +98,8 @@ function pull() {
     'issued_at',
     'valid_duration',
     'is_suspended',
+    'last_used',
+    'usage_count',
   ]
 
   const allRows = []
@@ -162,9 +164,16 @@ function push() {
 
   const headers = parseCsvLine(headerLine)
 
-  // Columns that are safe to update on conflict — is_suspended is excluded
-  // so that server-side auto-suspensions are never overwritten by stale CSV.
-  const updateCols = headers.filter((h) => h !== 'code' && h !== 'is_suspended')
+  // Columns that are safe to update on conflict — is_suspended, last_used,
+  // and usage_count are excluded so that server-side values are never
+  // overwritten by stale CSV data.
+  const updateCols = headers.filter(
+    (h) =>
+      h !== 'code' &&
+      h !== 'is_suspended' &&
+      h !== 'last_used' &&
+      h !== 'usage_count'
+  )
 
   const statements = []
   let skipped = 0
@@ -188,7 +197,15 @@ function push() {
 
     const sqlVals = headers.map((h, i) => {
       const v = vals[i] ?? ''
-      if (['issued_at', 'valid_duration', 'is_suspended'].includes(h)) {
+      if (
+        [
+          'issued_at',
+          'valid_duration',
+          'is_suspended',
+          'last_used',
+          'usage_count',
+        ].includes(h)
+      ) {
         const num = Number(v)
         if (!Number.isFinite(num) || num < 0) return 0
         return Math.floor(num)
