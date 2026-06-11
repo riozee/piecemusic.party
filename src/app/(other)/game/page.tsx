@@ -203,6 +203,18 @@ function DualScreenGame() {
 
   // --- PHONE SENSOR & INPUT ENGINE ---
   const requestSensors = async () => {
+    // 📱 Force native fullscreen and landscape lock if the browser allows it
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+      if (window.screen?.orientation?.lock) {
+        await window.screen.orientation.lock('landscape');
+      }
+    } catch (e) {
+      console.warn('Native landscape lock bypassed. Relying on CSS.', e);
+    }
+
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
       try {
         const permission = await (DeviceOrientationEvent as any).requestPermission();
@@ -280,12 +292,11 @@ function DualScreenGame() {
             style={{
               color: note.side === 'LEFT' ? '#3b82f6' : '#ec4899',
               backgroundColor: 'currentColor',
-              // The CSS animation pushes the note outward. Using var() lets us easily tune the timing globally.
+              // 🔗 INJECT THE CSS VARIABLE HERE (Cast as React.CSSProperties for TS)
+              '--angle': `${note.angle}deg`, 
               animation: `flyOut ${NOTE_TRAVEL_TIME}ms linear forwards`,
               transformOrigin: '0 0',
-              // We rotate the container to set the trajectory, then the keyframe handles the translation
-              transform: `rotate(${note.angle}deg)`
-            }}
+            } as React.CSSProperties} 
           />
         ))}
 
@@ -324,21 +335,24 @@ function DualScreenGame() {
     return (
       <div className="fixed inset-0 bg-slate-950 overflow-hidden touch-none select-none">
         
-        {/* We strip away all styling and just make the halves giant invisible tap catchers */}
-        <div className="relative flex w-full h-full landscape:flex-row portrait:flex-col portrait:w-[100vh] portrait:h-[100vw] portrait:-rotate-90 portrait:flex-row">
+        {/* Bulletproof center-pivot container. Forces landscape layout perfectly regardless of URL bars. */}
+        <div className="absolute top-1/2 left-1/2 w-[100vh] h-[100vw] sm:w-[100vw] sm:h-[100vh] -translate-x-1/2 -translate-y-1/2 portrait:-rotate-90 landscape:rotate-0 flex">
           
           {!status.includes('Active') ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-slate-950/90">
-              <p className="text-emerald-400 mb-8 font-mono text-xl">{status}</p>
+            // Notice this inner container rotates BACK to upright in portrait so the text is easily readable!
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-slate-950/90 portrait:rotate-90 landscape:rotate-0">
+              <p className="text-emerald-400 mb-8 font-mono text-xl text-center">{status}</p>
               {status.includes('Ready') && (
-                <button onClick={requestSensors} className="px-12 py-6 bg-emerald-500 text-slate-900 font-bold rounded-full text-2xl animate-pulse">
+                <button 
+                  onClick={requestSensors} 
+                  className="px-12 py-6 bg-emerald-500 active:bg-emerald-400 text-slate-900 font-bold rounded-full text-2xl animate-pulse shadow-[0_0_40px_rgba(16,185,129,0.5)]"
+                >
                   START DECK
                 </button>
               )}
             </div>
           ) : null}
 
-          {/* Pointer events handle mouse clicks, touch taps, and stylus taps universally */}
           <div 
             onPointerDown={() => handlePointer('LEFT', 'DOWN')}
             onPointerUp={() => handlePointer('LEFT', 'UP')}
@@ -352,7 +366,6 @@ function DualScreenGame() {
             className="flex-1 h-full w-full bg-pink-500/10 active:bg-pink-600/40"
           />
           
-          {/* Subtle centerline separator */}
           <div className="absolute top-0 bottom-0 left-1/2 w-1 -ml-[0.5px] bg-slate-800/50 pointer-events-none" />
         </div>
       </div>
