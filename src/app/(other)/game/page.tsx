@@ -11,7 +11,9 @@ function DualScreenGame() {
   const [status, setStatus] = useState('Initializing ⏳');
   const [qrUrl, setQrUrl] = useState('');
   const [isConnected, setIsConnected] = useState(false);
-  const [playerInput, setPlayerInput] = useState({ button: 'NONE', alpha: 0, beta: 0, gamma: 0 });
+  
+  // Cleaned up the input state to just take the raw tilt degree 📐
+  const [playerInput, setPlayerInput] = useState({ button: 'NONE', tilt: 0 });
   
   const controllerActionRef = useRef<any>(null);
   const hostPeerIdRef = useRef<string | null>(null);
@@ -24,32 +26,25 @@ function DualScreenGame() {
       const { joinRoom } = await import('@trystero-p2p/mqtt');
       
       const isHost = !urlRoom;
-      const roomId = urlRoom || 'game_' + Math.random().toString(36).substring(2, 9);
+      const roomId = urlRoom || 'piecemusicgame_' + Math.random().toString(36).substring(2, 9);
       
       const config = { 
         appId: 'my-campus-racer-v1',
-        rtcConfig: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' }
-          ]
-        }
+        rtcConfig: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
       };
 
       currentRoom = joinRoom(config, roomId);
-      
-      // The modern v0.25+ action object API 📦
       const controller = currentRoom.makeAction('controller');
 
       if (isHost) {
         setRole('desktop');
         setQrUrl(`${window.location.origin}${window.location.pathname}?room=${roomId}`);
-        setStatus('Waiting for controller 📡');
+        setStatus('Waiting for driver 🏎️');
 
-        // Event listeners are now direct nullable properties instead of function wrappers
         currentRoom.onPeerJoin = (peerId: string) => {
           if (!activePlayerIdRef.current) {
             activePlayerIdRef.current = peerId;
-            setStatus('Controller Connected 🎮');
+            setStatus('Engine Connected 🏁');
             setIsConnected(true);
           }
         };
@@ -58,13 +53,12 @@ function DualScreenGame() {
           if (activePlayerIdRef.current === peerId) {
             activePlayerIdRef.current = null;
             setIsConnected(false);
-            setStatus('Connection lost. Scan to reconnect 🔄');
-            setPlayerInput({ button: 'NONE', alpha: 0, beta: 0, gamma: 0 });
+            setStatus('Signal lost. Scan to reconnect 📡');
+            setPlayerInput({ button: 'NONE', tilt: 0 });
           }
         };
 
         controller.onMessage = (data: any, { peerId }: any) => {
-          // Only process inputs from the active player to prevent hijacking 🛑
           if (peerId === activePlayerIdRef.current) {
             setPlayerInput(data);
           }
@@ -72,12 +66,12 @@ function DualScreenGame() {
         
       } else {
         setRole('phone');
-        setStatus('Connecting to screen 🚀');
+        setStatus('Pairing to screen 🔗');
         controllerActionRef.current = controller;
         
         currentRoom.onPeerJoin = (peerId: string) => {
           hostPeerIdRef.current = peerId;
-          setStatus('Ready to play. Tap Start 🔥');
+          setStatus('Ready to race 🔥');
         };
       }
     };
@@ -93,7 +87,7 @@ function DualScreenGame() {
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
       try {
         const permission = await (DeviceOrientationEvent as any).requestPermission();
-        if (permission !== 'granted') return alert('Need motion access to play 🛑');
+        if (permission !== 'granted') return alert('Need motion access to steer 🛑');
       } catch (e) {
         console.error(e);
       }
@@ -101,16 +95,24 @@ function DualScreenGame() {
     
     window.addEventListener('deviceorientation', (e) => {
       if (controllerActionRef.current && hostPeerIdRef.current) {
-        // Explicitly targeting the host prevents broadcasting data to other phones in the room 🎯
+        // Automatically adapt the steering axis based on how they hold the phone 🧭
+        const isNativePortrait = window.innerHeight > window.innerWidth;
+        let currentTilt = 0;
+        
+        if (isNativePortrait) {
+          currentTilt = e.gamma || 0; // Roll axis when in fake-landscape
+        } else {
+          const angle = window.screen?.orientation?.angle || window.orientation || 0;
+          currentTilt = angle === 90 ? (e.beta || 0) : -(e.beta || 0); // Pitch axis when in true landscape
+        }
+
         controllerActionRef.current.send({
           button: controllerActionRef.current.lastButton || 'NONE',
-          alpha: Math.round(e.alpha || 0),
-          beta: Math.round(e.beta || 0),
-          gamma: Math.round(e.gamma || 0)
+          tilt: Math.round(currentTilt)
         }, { target: hostPeerIdRef.current });
       }
     });
-    setStatus('Sensors Active 🏁');
+    setStatus('Sensors Active 🟢');
   };
 
   const handleButton = (btn: string) => {
@@ -119,70 +121,95 @@ function DualScreenGame() {
 
   if (role === 'desktop') {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-8 font-sans">
-        <h1 className="text-4xl font-bold mb-4 tracking-tight">Main Display</h1>
-        <p className="text-emerald-400 mb-8 font-mono">{status}</p>
-
-        {qrUrl && !isConnected ? (
-          <div className="bg-white p-6 rounded-2xl shadow-2xl">
-            <QRCodeSVG value={qrUrl} size={300} />
-            <p className="text-slate-900 text-center mt-4 font-bold">Scan to Connect</p>
-          </div>
-        ) : (
-          <div className="w-full max-w-2xl bg-slate-800 rounded-2xl p-8 shadow-2xl border border-slate-700">
-            <div className="grid grid-cols-2 gap-8 text-center">
-              <div className="bg-slate-900 p-6 rounded-xl">
-                <p className="text-slate-400 mb-2 uppercase tracking-widest text-sm">Active Button</p>
-                <p className="text-6xl font-black text-blue-400">{playerInput.button}</p>
-              </div>
-              <div className="bg-slate-900 p-6 rounded-xl flex flex-col justify-center items-center gap-2">
-                <p className="text-slate-400 uppercase tracking-widest text-sm">Orientation</p>
-                <p className="text-xl font-mono text-pink-400">Z: {playerInput.alpha}°</p>
-                <p className="text-xl font-mono text-purple-400">X: {playerInput.beta}°</p>
-                <p className="text-xl font-mono text-indigo-400">Y: {playerInput.gamma}°</p>
-              </div>
+      <div className="fixed inset-0 bg-slate-950 overflow-hidden flex items-center justify-center font-sans">
+        
+        {(!isConnected || qrUrl) && !isConnected ? (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm">
+            <p className="text-emerald-400 mb-8 font-mono text-2xl">{status}</p>
+            <div className="bg-white p-6 rounded-3xl shadow-2xl">
+              <QRCodeSVG value={qrUrl} size={300} />
             </div>
+            <p className="text-slate-400 mt-6 font-bold tracking-widest uppercase">Scan to Connect</p>
           </div>
-        )}
+        ) : null}
+
+        {/* --- MAIN GAME UI --- */}
+        
+        {/* The massive circle (150vw = 3/4 viewport radius) pushed heavily off the top/bottom of the screen */}
+        <div className="absolute w-[150vw] h-[150vw] rounded-full border-[4px] border-slate-800/80 flex overflow-hidden shadow-[inset_0_0_150px_rgba(0,0,0,0.8)]">
+          {/* Left half glows blue when active */}
+          <div className={`w-1/2 h-full transition-colors duration-150 ${playerInput.button === 'LEFT' ? 'bg-blue-600/40 shadow-[0_0_150px_rgba(37,99,235,0.6)]' : 'bg-slate-900/10'}`} />
+          {/* Right half glows pink when active */}
+          <div className={`w-1/2 h-full transition-colors duration-150 ${playerInput.button === 'RIGHT' ? 'bg-pink-600/40 shadow-[0_0_150px_rgba(219,39,119,0.6)]' : 'bg-slate-900/10'}`} />
+        </div>
+
+        {/* The rotating horizon line connecting the triangles */}
+        <div 
+          className="absolute w-full px-12 md:px-24 lg:px-40 flex justify-between items-center transition-transform duration-75 ease-out"
+          style={{ transform: `rotate(${playerInput.tilt}deg)` }}
+        >
+          {/* A subtle horizontal line to visually anchor the 0-degree resting state */}
+          <div className="absolute inset-x-0 h-[2px] bg-slate-800/60 -z-10 mx-24 md:mx-36" />
+          
+          <div className={`w-0 h-0 border-y-[40px] border-y-transparent border-l-[80px] transition-all duration-150 ${playerInput.button === 'LEFT' ? 'border-l-blue-500 drop-shadow-[0_0_40px_rgba(59,130,246,1)] scale-110' : 'border-l-slate-700'}`} />
+          <div className={`w-0 h-0 border-y-[40px] border-y-transparent border-r-[80px] transition-all duration-150 ${playerInput.button === 'RIGHT' ? 'border-r-pink-500 drop-shadow-[0_0_40px_rgba(236,72,153,1)] scale-110' : 'border-r-slate-700'}`} />
+        </div>
+
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-slate-500 font-mono text-sm tracking-widest">
+          TILT: {playerInput.tilt}°
+        </div>
       </div>
     );
   }
 
   if (role === 'phone') {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 select-none touch-none">
-        <p className="text-emerald-400 mb-8 font-mono text-center">{status}</p>
+      <div className="fixed inset-0 bg-slate-950 overflow-hidden touch-none select-none flex items-center justify-center">
         
-        {status.includes('Ready') && (
-          <button 
-            onClick={requestSensors}
-            className="mb-12 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-full text-xl transition-colors shadow-lg shadow-emerald-500/30"
-          >
-            Start Sensors
-          </button>
-        )}
+        {/* Magic Tailwind Container: Uses native landscape if available, otherwise fakes it by rotating a swapped portrait container 90 degrees */}
+        <div className="relative flex gap-6 p-6 w-full h-full landscape:flex-row portrait:flex-col portrait:w-[100vh] portrait:h-[100vw] portrait:-rotate-90 portrait:flex-row items-center justify-center">
+          
+          {!status.includes('Active') ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-slate-950/90 backdrop-blur-sm rounded-3xl">
+              <p className="text-emerald-400 mb-8 font-mono text-xl">{status}</p>
+              {status.includes('Ready') && (
+                <button 
+                  onClick={requestSensors}
+                  className="px-12 py-6 bg-emerald-500 text-slate-900 font-bold rounded-full text-2xl animate-pulse shadow-[0_0_40px_rgba(16,185,129,0.5)]"
+                >
+                  START ENGINE
+                </button>
+              )}
+            </div>
+          ) : null}
 
-        <div className="flex w-full gap-4 max-w-md h-48">
+          {/* Massive tap targets built for peripheral vision. Added touchCancel to prevent ghost inputs if a thumb slides off. */}
           <button 
             onTouchStart={() => handleButton('LEFT')}
             onTouchEnd={() => handleButton('NONE')}
-            className="flex-1 bg-blue-500/20 border-2 border-blue-500 rounded-3xl active:bg-blue-500 text-blue-500 active:text-white transition-all text-2xl font-bold"
+            onTouchCancel={() => handleButton('NONE')}
+            onMouseDown={() => handleButton('LEFT')}
+            onMouseUp={() => handleButton('NONE')}
+            className="flex-1 h-full max-h-[500px] w-full bg-blue-500/10 border-4 border-blue-500/30 rounded-[3rem] active:bg-blue-600 active:border-blue-400 text-blue-500/50 active:text-white transition-all text-6xl font-black tracking-widest flex items-center justify-center active:shadow-[inset_0_0_80px_rgba(59,130,246,0.6),0_0_100px_rgba(59,130,246,0.8)]"
           >
-            LEFT
+            L
           </button>
           <button 
-             onTouchStart={() => handleButton('RIGHT')}
-             onTouchEnd={() => handleButton('NONE')}
-            className="flex-1 bg-pink-500/20 border-2 border-pink-500 rounded-3xl active:bg-pink-500 text-pink-500 active:text-white transition-all text-2xl font-bold"
+            onTouchStart={() => handleButton('RIGHT')}
+            onTouchEnd={() => handleButton('NONE')}
+            onTouchCancel={() => handleButton('NONE')}
+            onMouseDown={() => handleButton('RIGHT')}
+            onMouseUp={() => handleButton('NONE')}
+            className="flex-1 h-full max-h-[500px] w-full bg-pink-500/10 border-4 border-pink-500/30 rounded-[3rem] active:bg-pink-600 active:border-pink-400 text-pink-500/50 active:text-white transition-all text-6xl font-black tracking-widest flex items-center justify-center active:shadow-[inset_0_0_80px_rgba(236,72,153,0.6),0_0_100px_rgba(236,72,153,0.8)]"
           >
-            RIGHT
+            R
           </button>
         </div>
       </div>
     );
   }
 
-  return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">Loading...</div>;
+  return <div className="fixed inset-0 bg-slate-950 flex items-center justify-center text-white">Loading...</div>;
 }
 
 export default function GamePage() {
