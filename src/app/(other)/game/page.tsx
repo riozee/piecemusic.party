@@ -95,20 +95,25 @@ function DualScreenGame() {
     
     window.addEventListener('deviceorientation', (e) => {
       if (controllerActionRef.current && hostPeerIdRef.current) {
-        // Automatically adapt the steering axis based on how they hold the phone 🧭
+        
         const isNativePortrait = window.innerHeight > window.innerWidth;
         let currentTilt = 0;
         
         if (isNativePortrait) {
-          currentTilt = e.gamma || 0; // Roll axis when in fake-landscape
+          // Flipped the sign to negative to invert the steering 🔄
+          currentTilt = -(e.beta || 0); 
         } else {
           const angle = window.screen?.orientation?.angle || window.orientation || 0;
-          currentTilt = angle === 90 ? (e.beta || 0) : -(e.beta || 0); // Pitch axis when in true landscape
+          // Flipped both of these signs as well to match the inverted logic
+          currentTilt = angle === 90 ? (e.beta || 0) : -(e.beta || 0);
         }
+
+        // The mechanical steering rack lock 🛑
+        let clampedTilt = Math.max(-90, Math.min(90, currentTilt));
 
         controllerActionRef.current.send({
           button: controllerActionRef.current.lastButton || 'NONE',
-          tilt: Math.round(currentTilt)
+          tilt: Math.round(clampedTilt)
         }, { target: hostPeerIdRef.current });
       }
     });
