@@ -208,8 +208,11 @@ function DualScreenGame() {
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
       }
-      if (window.screen?.orientation?.lock) {
-        await window.screen.orientation.lock('landscape');
+      
+      // Bypass the strict TS compiler by temporarily casting to 'any' 🤫
+      const screenOrientation = window.screen?.orientation as any;
+      if (screenOrientation && typeof screenOrientation.lock === 'function') {
+        await screenOrientation.lock('landscape');
       }
     } catch (e) {
       console.warn('Native landscape lock bypassed. Relying on CSS.', e);
