@@ -3,28 +3,14 @@ import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 
-// --- THE PHYSICS & TIMING ENGINE ⚙️ ---
 const NOTE_TRAVEL_TIME = 2000; 
-// The visual ring is crossed at exactly 1200ms. 
-// We open the hit window at 900ms and close it at 1500ms. That gives you a MASSIVE 600ms grace period!
 const HIT_WINDOW_START = 900; 
 const HIT_WINDOW_END = 1500; 
-// Widened from 20 degrees to 45 degrees so you don't have to tilt the phone perfectly.
 const HIT_TOLERANCE_DEG = 45; 
+const NETWORK_THROTTLE_MS = 16; 
 
-type Note = {
-  id: string;
-  side: 'LEFT' | 'RIGHT';
-  angle: number;
-  createdAt: number;
-  type: 'SINGLE' | 'DOUBLE';
-  missed?: boolean;
-};
-
-type HitFeedback = {
-  id: string;
-  angle: number;
-};
+type Note = { id: string; side: 'LEFT' | 'RIGHT'; angle: number; createdAt: number; type: 'SINGLE' | 'DOUBLE'; missed?: boolean; };
+type HitFeedback = { id: string; angle: number; };
 
 function DualScreenGame() {
   const searchParams = useSearchParams();
@@ -37,25 +23,28 @@ function DualScreenGame() {
   const [isConnected, setIsConnected] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   
-  const [playerState, setPlayerState] = useState({ left: false, right: false, tilt: 0 });
+  const [playerState, setPlayerState] = useState({ left: false, right: false });
   const [notes, setNotes] = useState<Note[]>([]);
-  const [hits, setHits] = useState<HitFeedback[]>([]); // New state for visual tap feedback ✨
-  
+  const [hits, setHits] = useState<HitFeedback[]>([]);
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
 
+  const steeringContainerRef = useRef<HTMLDivElement>(null);
+  
   const sendActionRef = useRef<any>(null);
   const hostPeerIdRef = useRef<string | null>(null);
   const activePlayerIdRef = useRef<string | null>(null);
   const prevAngleRef = useRef({ LEFT: 180, RIGHT: 0 }); 
+  
   const phoneStateRef = useRef({ left: false, right: false, tilt: 0 });
+  const lastSendTimeRef = useRef(0);
+  const lastSentTiltRef = useRef(0);
   const sensorsStartedRef = useRef(false);
 
   // --- DESKTOP GAME LOOP ---
   useEffect(() => {
     if (role !== 'desktop' || !isConnected || !isPlaying) return;
 
-    // 1. Spawner Engine (Slowed down to 1000ms for better readability)
     const spawner = setInterval(() => {
       const roll = Math.random();
       const now = Date.now();
@@ -71,14 +60,10 @@ function DualScreenGame() {
       };
 
       if (roll < 0.25) {
-        // DOUBLE NOTE DROP
         const rightAngle = getNextAngle('RIGHT');
         newNotes.push({ id: `R-${now}`, side: 'RIGHT', angle: rightAngle, createdAt: now, type: 'DOUBLE' });
-        // The left angle mathematically mirrors the right angle
-        const leftAngle = rightAngle + 180; 
-        newNotes.push({ id: `L-${now}`, side: 'LEFT', angle: leftAngle, createdAt: now, type: 'DOUBLE' });
+        newNotes.push({ id: `L-${now}`, side: 'LEFT', angle: rightAngle + 180, createdAt: now, type: 'DOUBLE' });
       } else if (roll < 0.75) {
-        // SINGLE NOTE
         const side = Math.random() > 0.5 ? 'LEFT' : 'RIGHT';
         newNotes.push({ id: `${side[0]}-${now}`, side, angle: getNextAngle(side), createdAt: now, type: 'SINGLE' });
       }
@@ -86,19 +71,17 @@ function DualScreenGame() {
       if (newNotes.length > 0) setNotes(prev => [...prev, ...newNotes]);
     }, 1000);
 
-    // 2. High-Frequency Garbage Collector (Runs every 200ms to immediately detect dropped combos)
     const cleanup = setInterval(() => {
       const now = Date.now();
       setNotes(prev => {
         let dropped = false;
         const next = prev.map(n => {
-          // If the note passes the end of the hit window without being tapped, flag it as missed!
           if (!n.missed && now - n.createdAt > HIT_WINDOW_END) {
             dropped = true;
             return { ...n, missed: true };
           }
           return n;
-        }).filter(n => now - n.createdAt < NOTE_TRAVEL_TIME + 200); // Keep rendering until it flies off-screen
+        }).filter(n => now - n.createdAt < NOTE_TRAVEL_TIME + 200); 
         
         if (dropped) setTimeout(() => setCombo(0), 0);
         return next;
@@ -118,7 +101,7 @@ function DualScreenGame() {
       const roomId = urlRoom || 'game_' + Math.random().toString(36).substring(2, 9);
       
       const config = { 
-        appId: 'my-campus-racer-v2',
+        appId: 'my-campus-racer-v4', 
         rtcConfig: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
       };
 
@@ -133,7 +116,7 @@ function DualScreenGame() {
         currentRoom.onPeerJoin = (peerId: string) => {
           if (!activePlayerIdRef.current) {
             activePlayerIdRef.current = peerId;
-            setStatus('Deck Connected. Waiting for START... 💿');
+            setStatus('Deck Connected. Waiting for START 💿');
             setIsConnected(true);
           }
         };
@@ -144,7 +127,7 @@ function DualScreenGame() {
             setIsConnected(false);
             setIsPlaying(false);
             setStatus('Signal lost. Scan to reconnect 📡');
-            setPlayerState({ left: false, right: false, tilt: 0 });
+            setPlayerState({ left: false, right: false });
             setNotes([]);
           }
         };
@@ -157,12 +140,22 @@ function DualScreenGame() {
           if (peerId !== activePlayerIdRef.current) return;
           
           if (payload.action === 'START') {
-            setStatus('GAME ON! 🔥');
+            setStatus('GAME ON 🔥');
             setIsPlaying(true);
             return;
           }
           
-          setPlayerState({ left: payload.left, right: payload.right, tilt: payload.tilt });
+          if (steeringContainerRef.current) {
+            steeringContainerRef.current.style.transform = `rotate(${payload.tilt}deg)`;
+          }
+          
+          setPlayerState(prev => {
+            if (prev.left !== payload.left || prev.right !== payload.right) {
+              return { left: payload.left, right: payload.right };
+            }
+            return prev;
+          });
+
           if (payload.taps && payload.taps.length > 0) handleTaps(payload.taps, payload.tilt);
         };
         
@@ -193,13 +186,11 @@ function DualScreenGame() {
       taps.forEach(tapSide => {
         const targetNoteIndex = notesToKeep.findIndex(n => {
           const age = now - n.createdAt;
-          // You can't hit a note that was already flagged as completely missed
           return n.side === tapSide && !n.missed && age >= HIT_WINDOW_START && age <= HIT_WINDOW_END;
         });
 
         if (targetNoteIndex !== -1) {
           const note = notesToKeep[targetNoteIndex];
-          // Determine the angle of the triangle you just tapped
           const expectedAngle = note.side === 'LEFT' ? currentTilt + 180 : currentTilt;
           const angleDiff = Math.abs(((note.angle - expectedAngle + 540) % 360) - 180);
 
@@ -208,8 +199,9 @@ function DualScreenGame() {
             hitRegistered = true;
             setScore(s => s + 100);
             
-            // Spawn the explosive visual feedback ping 💥
-            const hitId = now.toString() + tapSide;
+            const uniqueSuffix = Math.random().toString(36).substring(2, 6);
+            const hitId = `${now}-${tapSide}-${uniqueSuffix}`;
+            
             newHits.push({ id: hitId, angle: note.angle });
             setTimeout(() => setHits(h => h.filter(x => x.id !== hitId)), 300);
           }
@@ -217,7 +209,7 @@ function DualScreenGame() {
       });
 
       if (hitRegistered) setCombo(c => c + 1);
-      else if (taps.length > 0) setCombo(0); // Only drop the combo if you tapped and hit thin air
+      else if (taps.length > 0) setCombo(0); 
       
       if (newHits.length > 0) setHits(prev => [...prev, ...newHits]);
       return notesToKeep;
@@ -234,7 +226,7 @@ function DualScreenGame() {
       if (screenOrientation && typeof screenOrientation.lock === 'function') {
         await screenOrientation.lock('landscape');
       }
-    } catch (e) { console.warn('Native landscape lock bypassed.', e); }
+    } catch (e) { console.warn('Native landscape lock bypassed', e); }
 
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
       try {
@@ -244,7 +236,6 @@ function DualScreenGame() {
     }
     
     sensorsStartedRef.current = true;
-
     if (sendActionRef.current && hostPeerIdRef.current) {
       sendActionRef.current.send({ action: 'START' }, { target: hostPeerIdRef.current });
     }
@@ -252,18 +243,28 @@ function DualScreenGame() {
     window.addEventListener('deviceorientation', (e) => {
       if (!sendActionRef.current || !hostPeerIdRef.current) return;
         
+      const now = Date.now();
       const isNativePortrait = window.innerHeight > window.innerWidth;
       let currentTilt = isNativePortrait ? -(e.beta || 0) : ((window.screen?.orientation?.angle || window.orientation || 0) === 90 ? (e.beta || 0) : -(e.beta || 0));
-      const clampedTilt = Math.max(-90, Math.min(90, currentTilt));
+      
+      const rawTilt = Math.max(-90, Math.min(90, currentTilt));
+      const clampedTilt = Math.round(rawTilt * 10) / 10; 
 
-      phoneStateRef.current.tilt = Math.round(clampedTilt);
+      phoneStateRef.current.tilt = clampedTilt;
 
-      sendActionRef.current.send({
-        left: phoneStateRef.current.left,
-        right: phoneStateRef.current.right,
-        tilt: phoneStateRef.current.tilt,
-        taps: []
-      }, { target: hostPeerIdRef.current });
+      if (now - lastSendTimeRef.current >= NETWORK_THROTTLE_MS) {
+        if (clampedTilt !== lastSentTiltRef.current) {
+          lastSendTimeRef.current = now;
+          lastSentTiltRef.current = clampedTilt;
+
+          sendActionRef.current.send({
+            left: phoneStateRef.current.left,
+            right: phoneStateRef.current.right,
+            tilt: clampedTilt,
+            taps: [] 
+          }, { target: hostPeerIdRef.current });
+        }
+      }
     });
     
     setStatus('Sensors Active 🟢');
@@ -291,7 +292,6 @@ function DualScreenGame() {
     return (
       <div className="fixed inset-0 bg-slate-950 overflow-hidden flex items-center justify-center font-sans">
         
-        {/* Connection Overlays */}
         {(!isConnected || qrUrl) && !isConnected ? (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm">
             <p className="text-emerald-400 mb-8 font-mono text-2xl">{status}</p>
@@ -307,7 +307,6 @@ function DualScreenGame() {
           </div>
         ) : null}
 
-        {/* HUD UI */}
         <div className="absolute top-8 left-8 text-white z-40">
           <p className="text-4xl font-black tracking-widest">{score}</p>
           <p className={`text-xl font-mono ${combo > 5 ? 'text-orange-400 animate-pulse' : 'text-slate-500'}`}>
@@ -315,10 +314,8 @@ function DualScreenGame() {
           </p>
         </div>
 
-        {/* The Target "Hit Ring" - Increased opacity so you can clearly see the judgment line */}
         <div className="absolute w-[60vw] h-[60vw] rounded-full border-[4px] border-white/30 shadow-[0_0_50px_rgba(255,255,255,0.2),inset_0_0_50px_rgba(255,255,255,0.1)] pointer-events-none z-20" />
 
-        {/* Render Visual Hit Feedback Explosions */}
         {hits.map(hit => (
           <div 
             key={hit.id}
@@ -330,7 +327,6 @@ function DualScreenGame() {
           />
         ))}
 
-        {/* Render Double Note Connector Lines */}
         {notes.filter(n => n.type === 'DOUBLE' && n.side === 'RIGHT').map(note => (
           <div 
             key={`line-${note.id}`}
@@ -342,7 +338,6 @@ function DualScreenGame() {
           />
         ))}
 
-        {/* Render Notes */}
         {notes.map(note => (
           <div 
             key={note.id}
@@ -357,7 +352,6 @@ function DualScreenGame() {
           />
         ))}
 
-        {/* Master Physics Keyframes */}
         <style dangerouslySetInnerHTML={{__html: `
           @keyframes flyOut {
             0% { transform: rotate(var(--angle)) translateX(0) scale(0.2); opacity: 0; }
@@ -377,16 +371,15 @@ function DualScreenGame() {
           }
         `}} />
 
-        {/* The Massive Steering Arena */}
         <div className="absolute w-[150vw] h-[150vw] rounded-full border-[4px] border-slate-800/80 flex overflow-hidden shadow-[inset_0_0_150px_rgba(0,0,0,0.8)] z-10 pointer-events-none">
           <div className={`w-1/2 h-full transition-colors duration-75 ${playerState.left ? 'bg-blue-600/30 shadow-[0_0_150px_rgba(37,99,235,0.5)]' : 'bg-slate-900/10'}`} />
           <div className={`w-1/2 h-full transition-colors duration-75 ${playerState.right ? 'bg-pink-600/30 shadow-[0_0_150px_rgba(219,39,119,0.5)]' : 'bg-slate-900/10'}`} />
         </div>
 
-        {/* The Player Steering Triangles */}
+        {/* ⚡ OPTIMIZATION: Removed the CSS transition. Raw decimal precision handles the smoothness natively now. */}
         <div 
-          className="absolute w-full px-[20vw] flex justify-between items-center transition-transform duration-75 ease-out z-40 pointer-events-none"
-          style={{ transform: `rotate(${playerState.tilt}deg)` }}
+          ref={steeringContainerRef}
+          className="absolute w-full px-[20vw] flex justify-between items-center z-40 pointer-events-none"
         >
           <div className="absolute inset-x-0 h-[2px] bg-slate-800/40 -z-10 mx-[20vw]" />
           <div className={`w-0 h-0 border-y-[30px] border-y-transparent border-l-[60px] transition-all duration-75 ${playerState.left ? 'border-l-blue-500 drop-shadow-[0_0_40px_rgba(59,130,246,1)] scale-125' : 'border-l-slate-700'}`} />
