@@ -3,16 +3,27 @@ import { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 
+// --- THE PHYSICS & TIMING ENGINE ⚙️ ---
 const NOTE_TRAVEL_TIME = 2000; 
-const HIT_WINDOW_START = 1300; 
-const HIT_WINDOW_END = 1700; 
-const HIT_TOLERANCE_DEG = 20; 
+// The visual ring is crossed at exactly 1200ms. 
+// We open the hit window at 900ms and close it at 1500ms. That gives you a MASSIVE 600ms grace period!
+const HIT_WINDOW_START = 900; 
+const HIT_WINDOW_END = 1500; 
+// Widened from 20 degrees to 45 degrees so you don't have to tilt the phone perfectly.
+const HIT_TOLERANCE_DEG = 45; 
 
 type Note = {
   id: string;
   side: 'LEFT' | 'RIGHT';
   angle: number;
   createdAt: number;
+  type: 'SINGLE' | 'DOUBLE';
+  missed?: boolean;
+};
+
+type HitFeedback = {
+  id: string;
+  angle: number;
 };
 
 function DualScreenGame() {
@@ -28,6 +39,8 @@ function DualScreenGame() {
   
   const [playerState, setPlayerState] = useState({ left: false, right: false, tilt: 0 });
   const [notes, setNotes] = useState<Note[]>([]);
+  const [hits, setHits] = useState<HitFeedback[]>([]); // New state for visual tap feedback ✨
+  
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
 
@@ -42,6 +55,7 @@ function DualScreenGame() {
   useEffect(() => {
     if (role !== 'desktop' || !isConnected || !isPlaying) return;
 
+    // 1. Spawner Engine (Slowed down to 1000ms for better readability)
     const spawner = setInterval(() => {
       const roll = Math.random();
       const now = Date.now();
@@ -57,26 +71,39 @@ function DualScreenGame() {
       };
 
       if (roll < 0.25) {
+        // DOUBLE NOTE DROP
         const rightAngle = getNextAngle('RIGHT');
-        newNotes.push({ id: `R-${now}`, side: 'RIGHT', angle: rightAngle, createdAt: now });
-        const leftAngle = rightAngle > 0 ? 180 + rightAngle : 180 + rightAngle; 
-        newNotes.push({ id: `L-${now}`, side: 'LEFT', angle: leftAngle, createdAt: now });
+        newNotes.push({ id: `R-${now}`, side: 'RIGHT', angle: rightAngle, createdAt: now, type: 'DOUBLE' });
+        // The left angle mathematically mirrors the right angle
+        const leftAngle = rightAngle + 180; 
+        newNotes.push({ id: `L-${now}`, side: 'LEFT', angle: leftAngle, createdAt: now, type: 'DOUBLE' });
       } else if (roll < 0.75) {
+        // SINGLE NOTE
         const side = Math.random() > 0.5 ? 'LEFT' : 'RIGHT';
-        newNotes.push({ id: `${side[0]}-${now}`, side, angle: getNextAngle(side), createdAt: now });
+        newNotes.push({ id: `${side[0]}-${now}`, side, angle: getNextAngle(side), createdAt: now, type: 'SINGLE' });
       }
 
       if (newNotes.length > 0) setNotes(prev => [...prev, ...newNotes]);
-    }, 500);
+    }, 1000);
 
+    // 2. High-Frequency Garbage Collector (Runs every 200ms to immediately detect dropped combos)
     const cleanup = setInterval(() => {
       const now = Date.now();
       setNotes(prev => {
-        const survivingNotes = prev.filter(n => now - n.createdAt < NOTE_TRAVEL_TIME + 200);
-        if (survivingNotes.length < prev.length) setCombo(0);
-        return survivingNotes;
+        let dropped = false;
+        const next = prev.map(n => {
+          // If the note passes the end of the hit window without being tapped, flag it as missed!
+          if (!n.missed && now - n.createdAt > HIT_WINDOW_END) {
+            dropped = true;
+            return { ...n, missed: true };
+          }
+          return n;
+        }).filter(n => now - n.createdAt < NOTE_TRAVEL_TIME + 200); // Keep rendering until it flies off-screen
+        
+        if (dropped) setTimeout(() => setCombo(0), 0);
+        return next;
       });
-    }, 1000);
+    }, 200);
 
     return () => { clearInterval(spawner); clearInterval(cleanup); };
   }, [role, isConnected, isPlaying]);
@@ -96,8 +123,6 @@ function DualScreenGame() {
       };
 
       currentRoom = joinRoom(config, roomId);
-      
-      // The glorious modern object API restored 💎
       const controllerAction = currentRoom.makeAction('controller');
 
       if (isHost) {
@@ -125,12 +150,10 @@ function DualScreenGame() {
         };
 
         controllerAction.onMessage = (payload: any, { peerId }: any) => {
-          // If the DJ drops and a spectator is mashing the screen, hand them the keys!
           if (!activePlayerIdRef.current) {
             activePlayerIdRef.current = peerId;
             setIsConnected(true);
           }
-
           if (peerId !== activePlayerIdRef.current) return;
           
           if (payload.action === 'START') {
@@ -165,15 +188,18 @@ function DualScreenGame() {
     setNotes(prevNotes => {
       let notesToKeep = [...prevNotes];
       let hitRegistered = false;
+      const newHits: HitFeedback[] = [];
 
       taps.forEach(tapSide => {
         const targetNoteIndex = notesToKeep.findIndex(n => {
           const age = now - n.createdAt;
-          return n.side === tapSide && age >= HIT_WINDOW_START && age <= HIT_WINDOW_END;
+          // You can't hit a note that was already flagged as completely missed
+          return n.side === tapSide && !n.missed && age >= HIT_WINDOW_START && age <= HIT_WINDOW_END;
         });
 
         if (targetNoteIndex !== -1) {
           const note = notesToKeep[targetNoteIndex];
+          // Determine the angle of the triangle you just tapped
           const expectedAngle = note.side === 'LEFT' ? currentTilt + 180 : currentTilt;
           const angleDiff = Math.abs(((note.angle - expectedAngle + 540) % 360) - 180);
 
@@ -181,13 +207,19 @@ function DualScreenGame() {
             notesToKeep.splice(targetNoteIndex, 1);
             hitRegistered = true;
             setScore(s => s + 100);
+            
+            // Spawn the explosive visual feedback ping 💥
+            const hitId = now.toString() + tapSide;
+            newHits.push({ id: hitId, angle: note.angle });
+            setTimeout(() => setHits(h => h.filter(x => x.id !== hitId)), 300);
           }
         }
       });
 
       if (hitRegistered) setCombo(c => c + 1);
-      else setCombo(0);
+      else if (taps.length > 0) setCombo(0); // Only drop the combo if you tapped and hit thin air
       
+      if (newHits.length > 0) setHits(prev => [...prev, ...newHits]);
       return notesToKeep;
     });
   };
@@ -214,7 +246,6 @@ function DualScreenGame() {
     sensorsStartedRef.current = true;
 
     if (sendActionRef.current && hostPeerIdRef.current) {
-      // The modern send syntax: action.send(payload, { target: peerId }) 📦
       sendActionRef.current.send({ action: 'START' }, { target: hostPeerIdRef.current });
     }
     
@@ -260,6 +291,7 @@ function DualScreenGame() {
     return (
       <div className="fixed inset-0 bg-slate-950 overflow-hidden flex items-center justify-center font-sans">
         
+        {/* Connection Overlays */}
         {(!isConnected || qrUrl) && !isConnected ? (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm">
             <p className="text-emerald-400 mb-8 font-mono text-2xl">{status}</p>
@@ -275,6 +307,7 @@ function DualScreenGame() {
           </div>
         ) : null}
 
+        {/* HUD UI */}
         <div className="absolute top-8 left-8 text-white z-40">
           <p className="text-4xl font-black tracking-widest">{score}</p>
           <p className={`text-xl font-mono ${combo > 5 ? 'text-orange-400 animate-pulse' : 'text-slate-500'}`}>
@@ -282,8 +315,34 @@ function DualScreenGame() {
           </p>
         </div>
 
-        <div className="absolute w-[60vw] h-[60vw] rounded-full border-2 border-white/20 shadow-[0_0_50px_rgba(255,255,255,0.05)] pointer-events-none" />
+        {/* The Target "Hit Ring" - Increased opacity so you can clearly see the judgment line */}
+        <div className="absolute w-[60vw] h-[60vw] rounded-full border-[4px] border-white/30 shadow-[0_0_50px_rgba(255,255,255,0.2),inset_0_0_50px_rgba(255,255,255,0.1)] pointer-events-none z-20" />
 
+        {/* Render Visual Hit Feedback Explosions */}
+        {hits.map(hit => (
+          <div 
+            key={hit.id}
+            className="absolute top-1/2 left-1/2 w-[8vw] h-[8vw] -mt-[4vw] -ml-[4vw] rounded-full border-yellow-300 z-50 pointer-events-none shadow-[0_0_30px_rgba(253,224,71,0.8)]"
+            style={{
+              '--angle': `${hit.angle}deg`,
+              animation: `hitPing 0.3s ease-out forwards`,
+            } as React.CSSProperties}
+          />
+        ))}
+
+        {/* Render Double Note Connector Lines */}
+        {notes.filter(n => n.type === 'DOUBLE' && n.side === 'RIGHT').map(note => (
+          <div 
+            key={`line-${note.id}`}
+            className="absolute top-1/2 left-1/2 w-[100vw] h-[4px] -mt-[2px] -ml-[50vw] bg-white/40 shadow-[0_0_20px_rgba(255,255,255,0.6)] z-10"
+            style={{
+              '--angle': `${note.angle}deg`,
+              animation: `expandLine ${NOTE_TRAVEL_TIME}ms linear forwards`,
+            } as React.CSSProperties}
+          />
+        ))}
+
+        {/* Render Notes */}
         {notes.map(note => (
           <div 
             key={note.id}
@@ -298,22 +357,35 @@ function DualScreenGame() {
           />
         ))}
 
+        {/* Master Physics Keyframes */}
         <style dangerouslySetInnerHTML={{__html: `
           @keyframes flyOut {
-            0% { transform: rotate(var(--angle)) translateX(0); opacity: 0; }
-            10% { opacity: 1; }
-            90% { opacity: 1; }
-            100% { transform: rotate(var(--angle)) translateX(50vw); opacity: 0; }
+            0% { transform: rotate(var(--angle)) translateX(0) scale(0.2); opacity: 0; }
+            5% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: rotate(var(--angle)) translateX(50vw) scale(1.5); opacity: 0; }
+          }
+          @keyframes expandLine {
+            0% { transform: rotate(var(--angle)) scaleX(0); opacity: 0; }
+            5% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: rotate(var(--angle)) scaleX(1); opacity: 0; }
+          }
+          @keyframes hitPing {
+            0% { transform: rotate(var(--angle)) translateX(30vw) scale(0.5); opacity: 1; border-width: 10px; }
+            100% { transform: rotate(var(--angle)) translateX(30vw) scale(1.5); opacity: 0; border-width: 0px; }
           }
         `}} />
 
-        <div className="absolute w-[150vw] h-[150vw] rounded-full border-[4px] border-slate-800/80 flex overflow-hidden shadow-[inset_0_0_150px_rgba(0,0,0,0.8)] z-10">
+        {/* The Massive Steering Arena */}
+        <div className="absolute w-[150vw] h-[150vw] rounded-full border-[4px] border-slate-800/80 flex overflow-hidden shadow-[inset_0_0_150px_rgba(0,0,0,0.8)] z-10 pointer-events-none">
           <div className={`w-1/2 h-full transition-colors duration-75 ${playerState.left ? 'bg-blue-600/30 shadow-[0_0_150px_rgba(37,99,235,0.5)]' : 'bg-slate-900/10'}`} />
           <div className={`w-1/2 h-full transition-colors duration-75 ${playerState.right ? 'bg-pink-600/30 shadow-[0_0_150px_rgba(219,39,119,0.5)]' : 'bg-slate-900/10'}`} />
         </div>
 
+        {/* The Player Steering Triangles */}
         <div 
-          className="absolute w-full px-[20vw] flex justify-between items-center transition-transform duration-75 ease-out z-20"
+          className="absolute w-full px-[20vw] flex justify-between items-center transition-transform duration-75 ease-out z-40 pointer-events-none"
           style={{ transform: `rotate(${playerState.tilt}deg)` }}
         >
           <div className="absolute inset-x-0 h-[2px] bg-slate-800/40 -z-10 mx-[20vw]" />
